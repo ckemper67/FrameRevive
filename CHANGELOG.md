@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.25-alpha
+
+- Add Show Pair: two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did.
+  Portrait frames stack two landscape photos; landscape frames place two portrait photos side by side.
+- Share one zoom factor across both halves, refuse pairs that would crop more than 30%, and fall back to the
+  single photo with the blurred background.
+- Count a pair as one photo for the collage cadence, and keep four photos preloaded while pairing is on.
+- Request a square cache box of the panel's long edge so cropped halves keep full resolution.
+- Add the Show pairs switch to Everyday and the native settings dialog, plus Debug orientation status.
+
 ## 0.5.24-alpha
 
 - Show the active Google Photos shared-album link in Debug connection status, with wrapping for phone screens.

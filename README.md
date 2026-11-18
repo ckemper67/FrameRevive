@@ -4,7 +4,7 @@ A standalone Android photo-frame app for the discontinued Lenovo Smart Frame (CD
 
 **`main` is the maintained branch.** The older prototype branches are historical; start new work and builds from `main`. See the [documentation index](docs/README.md).
 
-## Current version: 0.5.24 alpha
+## Current version: 0.5.25 alpha
 
 The tested build includes a shared Google Photos album source, automatic checks for additions, a neutral three-tab HTTPS controls page, blurred photo backgrounds, a frame clock/time-zone display, hand gestures, and front-button navigation with pause/resume.
 
@@ -14,6 +14,7 @@ The tested build includes a shared Google Photos album source, automatic checks 
 - **Photo mix:** adjustable Recent/Memories slider, recent capture count, and seasonal date window. Defaults remain 300 recent photos, +/-14 days, and 50/50. Additions still get a first priority showing; capture date determines recent selection.
 - **Preloading:** a bounded background queue prepares upcoming photos; Debug shows Ready, Loading, Queued and Failed states.
 - **Gentle transitions:** optional 0.6-second crossfades between photos and collages.
+- **Show pairs:** two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did; a portrait frame stacks two landscape photos. Refused pairs fall back to the single photo with the blurred background. See [Show pairs](docs/show-pair.md).
 - **Collages:** optional 2-, 3- and 4-photo collages after every 20 individual photos, with layouts suited to portrait and landscape images, with adjustable frequency and a Debug preview. See the [preloading, mix and collage guide](docs/preloading-mix-collages.md).
 - **Navigation:** one active image operation and only the latest pending request, loading feedback, and history retained across same-album refreshes.
 

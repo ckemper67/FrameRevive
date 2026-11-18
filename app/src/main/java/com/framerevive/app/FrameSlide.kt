@@ -1,9 +1,16 @@
 package com.framerevive.app
 
+enum class SlideMode { SINGLE, PAIR, COLLAGE }
+
 /** History stores catalog references, never decoded images. */
-data class FrameSlide(val photos: List<FramePhoto>) {
-    init { require(photos.size in 1..4); require(photos.map { it.id }.distinct().size == photos.size) }
-    val collage: Boolean get() = photos.size > 1
+data class FrameSlide(val photos: List<FramePhoto>, val mode: SlideMode = if (photos.size == 1) SlideMode.SINGLE else SlideMode.COLLAGE) {
+    init {
+        require(photos.size in 1..4); require(photos.map { it.id }.distinct().size == photos.size)
+        require(mode != SlideMode.SINGLE || photos.size == 1); require(mode != SlideMode.PAIR || photos.size == 2)
+    }
+    /** Curated collage only; pairs use the ordinary one-photo-per-interval cadence. */
+    val collage: Boolean get() = mode == SlideMode.COLLAGE
+    val pair: Boolean get() = mode == SlideMode.PAIR
     val id: String get() = photos.joinToString("") { "${it.id.length}:${it.id}" }
 }
 
@@ -68,6 +75,35 @@ object CollageLayout {
         }
         return best
     }
+    /**
+     * Two photos of the orientation opposite the frame fill the screen, as Lenovo's Show Pair did.
+     * Both halves share one zoom factor, so both photos lose the same proportion; [crop] reports it.
+     */
+    data class PairLayout(val boxes: List<Box>, val zoom: Float) {
+        /** Share of each photo lost to centre cropping; above 1 it trims width, below 1 it trims height. */
+        val crop: Float get() = if (zoom >= 1f) 1f - 1f / zoom else 1f - zoom
+    }
+
+    fun pair(width: Int, height: Int, first: Size, second: Size, portrait: Boolean, gap: Int = 8): PairLayout {
+        require(width > gap * 3 && height > gap * 3 && gap >= 0)
+        if (portrait) {
+            val cell = (width - gap * 2).toFloat()
+            val firstNatural = cell * first.height / first.width
+            val secondNatural = cell * second.height / second.width
+            val zoom = (height - gap * 3).toFloat() / (firstNatural + secondNatural)
+            val top = gap + firstNatural * zoom
+            return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), width - gap.toFloat(), top),
+                Box(gap.toFloat(), top + gap, width - gap.toFloat(), top + gap + secondNatural * zoom)), zoom)
+        }
+        val cell = (height - gap * 2).toFloat()
+        val firstNatural = cell * first.width / first.height
+        val secondNatural = cell * second.width / second.height
+        val zoom = (width - gap * 3).toFloat() / (firstNatural + secondNatural)
+        val left = gap + firstNatural * zoom
+        return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), left, height - gap.toFloat()),
+            Box(left + gap, gap.toFloat(), left + gap + secondNatural * zoom, height - gap.toFloat())), zoom)
+    }
+
     fun fit(width: Int,height: Int,cell: Box,fill: Boolean=false): Box {
         require(width>0 && height>0)
         val scale=if(fill) maxOf(cell.width/width,cell.height/height) else minOf(cell.width/width,cell.height/height)

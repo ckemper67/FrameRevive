@@ -14,7 +14,6 @@ import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -265,7 +264,8 @@ class MainActivity : Activity() {
         val blur = CheckBox(this).apply { text = "Blurred background (when not filling screen)"; isChecked = prefs.getBoolean("blurBackground", true) }
         val date = CheckBox(this).apply { text = "Show photo date"; isChecked = prefs.getBoolean("date", true) }
         val hand = CheckBox(this).apply { text = "Hand gestures: left for next, right for previous"; isChecked = prefs.getBoolean("gestures", true) }
-        layout.addView(enabled); layout.addView(crop); layout.addView(blur); layout.addView(date); layout.addView(hand)
+        val pairs = CheckBox(this).apply { text = "Show pairs: two photos of the opposite orientation fill the frame"; isChecked = prefs.getBoolean("pairs", true) }
+        layout.addView(enabled); layout.addView(crop); layout.addView(blur); layout.addView(date); layout.addView(pairs); layout.addView(hand)
         layout.addView(TextView(this).apply { text = "Checks your album hourly. " + if (FramePower.hasScreenControl(this@MainActivity)) "Sleep turns the display off and schedules automatic wake." else "Sleep dims to black until screen control is enabled." })
         val dialog = AlertDialog.Builder(this).setTitle("FrameRevive settings").setView(layout).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
         dialog.setOnShowListener {
@@ -278,7 +278,8 @@ class MainActivity : Activity() {
                     val wasSleeping = FramePower.shouldSleep(this) || sleeping
                     prefs.edit().putString("sleepStart", a.toString()).putString("sleepEnd", b.toString())
                         .putBoolean("schedule", enabled.isChecked).putBoolean("crop", crop.isChecked).putBoolean("blurBackground",blur.isChecked)
-                        .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light).apply()
+                        .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light)
+                        .putBoolean("pairs",pairs.isChecked).apply()
                     image.blurredBackground = blur.isChecked
                     image.scaleType = if (crop.isChecked) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                     caption.visibility = if (date.isChecked) View.VISIBLE else View.GONE
@@ -314,15 +315,15 @@ class MainActivity : Activity() {
     }
 
     private fun cached(p: FramePhoto): File {
-        val hash = MessageDigest.getInstance("SHA-256").digest(p.id.toByteArray()).joinToString("") { "%02x".format(it) }
-        return File(File(filesDir, "photo-cache").apply { mkdirs() }, "$hash.jpg")
+        val d = resources.displayMetrics
+        return File(File(filesDir, "photo-cache").apply { mkdirs() }, FrameCache.name(p.id, FrameCache.suffix(d.widthPixels, d.heightPixels)))
     }
     private fun ensureCached(p:FramePhoto,current:()->Boolean = { true }) {
         val file=cached(p)
         if(synchronized(cacheLock) { file.exists() } || !current()) return
         val d=resources.displayMetrics
         val reader=client
-        val bytes=reader.request(p.url + "=w${d.widthPixels}-h${d.heightPixels}",image=true)
+        val bytes=reader.request(p.url + FrameCache.suffix(d.widthPixels, d.heightPixels),image=true)
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
@@ -333,6 +334,14 @@ class MainActivity : Activity() {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(cached(p).path,bounds)
         CollageLayout.Size(bounds.outWidth,bounds.outHeight)
+    }
+    /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
+    private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
+        if (!cached(p).exists()) null else photoSize(p)
+    }.getOrNull()
+    private fun frameOrientation(): FrameOrientation {
+        val d = resources.displayMetrics
+        return PairSelection.orientation(d.widthPixels, d.heightPixels)
     }
     private fun bitmap(p:FramePhoto,maxEdge:Int=2400):android.graphics.Bitmap {
         ensureCached(p)
@@ -348,7 +357,9 @@ class MainActivity : Activity() {
     private fun planPreloads() {
         if(closed || !active || sleeping || !prefs.getBoolean("preload",true)) { preloader.clear(); return }
         if(playlist.isNotEmpty() && index >= playlist.size) rebuild()
-        val count=if(prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1) maxOf(3,collageCadence.nextCount) else 3
+        // A pair needs two ready photos of the opposite orientation, so keep one more queued.
+        val depth=if(prefs.getBoolean("pairs",true)) 4 else 3
+        val count=if(prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1) maxOf(depth,collageCadence.nextCount) else depth
         preloader.plan(playlist.drop(index).distinctBy { it.id }.take(count))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
@@ -377,8 +388,22 @@ class MainActivity : Activity() {
         if(selected.size in 2..4) {
             val ids=selected.map { it.id }.toSet()
             playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-            showSlide(FrameSlide(selected))
-        } else showSlide(FrameSlide(listOf(playlist[index++])))
+            showSlide(FrameSlide(selected,SlideMode.COLLAGE))
+            return
+        }
+        // Show Pair: two photos of the orientation opposite the frame fill the screen.
+        if(prefs.getBoolean("pairs",true)) {
+            val d=resources.displayMetrics
+            val pair=PairSelection.choose(d.widthPixels,d.heightPixels,playlist.drop(index),::cachedSize,{ cached(it).exists() },
+                lastSlide?.photos?.map { it.id }?.toSet().orEmpty())
+            if(pair.size == 2) {
+                val ids=pair.map { it.id }.toSet()
+                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
+                showSlide(FrameSlide(pair,SlideMode.PAIR))
+                return
+            }
+        }
+        showSlide(FrameSlide(listOf(playlist[index++])))
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
@@ -395,9 +420,11 @@ class MainActivity : Activity() {
         images.execute {
             if (ticket != generation || closed || !active || sleeping) return@execute
             try {
-                val b = if(slide.collage) {
+                val b = if(slide.collage || slide.pair) {
                     val d=resources.displayMetrics
-                    FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),prefs.getBoolean("date",true),::photoSize) { bitmap(it,1200) }
+                    // Pairs fill their half of the screen, so they need more pixels than a letterboxed cell.
+                    FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
+                        prefs.getBoolean("date",true) && !slide.pair,::photoSize,{ bitmap(it,if(slide.pair) 1600 else 1200) },fill=slide.pair)
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
@@ -466,7 +493,7 @@ class MainActivity : Activity() {
                         // Refresh history URLs and remove deleted items while retaining navigation within this album.
                         if (changingAlbum) { history.clear(); collageCadence.reset() } else {
                             val updated=fresh.associateBy { it.id }
-                            history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let(::FrameSlide) }
+                            history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let { FrameSlide(it, old.mode) } }
                         }
                         if (changingAlbum) priorityIds.clear()
                         else priorityIds.addAll(fresh.filter { it.id !in existing }.map { it.id })
@@ -572,6 +599,7 @@ class MainActivity : Activity() {
         if (playbackPaused) flags += "paused"
         if (photoLoading) flags += "photoLoading"
         if(prefs.getBoolean("collages",true)) flags += "collages"
+        if(prefs.getBoolean("pairs",true)) flags += "pairs"
         if(prefs.getBoolean("preload",true)) flags += "preload"
         if (sharedLink.isNotBlank()) flags += "shared"
         if (syncing.get()) flags += "syncing"
@@ -585,6 +613,8 @@ class MainActivity : Activity() {
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
             "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · ${if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo collage on screen" else "Single photo"}"),
+            "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
+                else "On · frame ${if(frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"} · ${if(lastSlide?.pair == true) "pair on screen" else "single photo"} · up to ${(PairSelection.MAX_CROP*100).toInt()}% crop per photo"),
             "preloadSummary" to preloadSummary, "preloadDetails" to preloadDetails,
             "frameTime" to java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.MEDIUM).format(java.util.Date()),
             "frameTimeZone" to (java.util.TimeZone.getDefault().id + " (" + java.time.ZonedDateTime.now().offset.toString() + ")"),
@@ -609,6 +639,7 @@ class MainActivity : Activity() {
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos",
+                "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
                 "Last refresh: ${time("lastSuccessfulSync")}", "Last attempt: ${time("lastSyncAttempt")}",
@@ -661,6 +692,7 @@ class MainActivity : Activity() {
                     if (fields["transitionSettings"] == "1") edit.putBoolean("gentleTransitions",fields.containsKey("gentleTransitions"))
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
+                    if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
                     if(changingMix) edit.putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()

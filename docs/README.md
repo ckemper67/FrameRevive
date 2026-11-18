@@ -6,6 +6,7 @@ The native Android app on `main` is maintained.
 - [Windows installation](../installer/README-FIRST.md)
 - [Web controls](web-controls.md)
 - [Preloading, photo mix and collages](preloading-mix-collages.md)
+- [Show pairs](show-pair.md)
 - [Front buttons and pause](front-buttons.md)
 - [Hand gestures](gestures.md)
 - [HTTPS pairing](security-pairing.md)

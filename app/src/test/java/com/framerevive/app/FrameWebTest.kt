@@ -34,6 +34,14 @@ class FrameWebTest {
         val shared=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("shared")))
         assertFalse(shared.contains("<h2>Switch to a shared album link</h2>"))
     }
+    @Test fun pairToggleFollowsTheSavedSetting() {
+        val on=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("pairs")))
+        val off=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
+        assertTrue(on.contains("name=\"pairs\" checked"))
+        assertFalse(off.contains("name=\"pairs\" checked"))
+        assertTrue(on.contains("name=\"pairSettings\" value=\"1\""))
+        assertTrue(on.contains("Show pairs"))
+    }
     @Test fun activeAlbumLinkIsEscapedAndStaysOutsideCopiedDiagnostics() {
         val link="https://photos.app.goo.gl/example?test=<unsafe>"
         val page=FrameWeb.render(FrameWeb.State(mapOf("albumLink" to link,"diagnostics" to "Safe report"),setOf("shared")))
