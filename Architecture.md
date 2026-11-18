@@ -6,6 +6,8 @@ FrameRevive 0.5.1-alpha is a native Kotlin Android application for the Lenovo Sm
 - `PrivatePhotosClient`: read-only access to the selected private Google Photos album using the unofficial signed-in web interface.
 - `GoogleSessionCookies`: imported session parsing; session material is encrypted with Android Keystore.
 - `PhotoSelection`: recent and seasonal photo selection from the album index.
+- `PairSelection`, `CollageSelection` and `CollageLayout`: two-photo Show Pair slides, curated collages and their covering layouts.
+- `PhotoQuality`: a cheap per-photo focus/exposure score that keeps soft shots out of collages.
 - `FrameRemote`: authenticated local network management page and guided session/album setup.
 - `FramePower` and `FrameSchedule`: display-off policy and direct activity alarms for scheduled wake.
 

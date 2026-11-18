@@ -1,9 +1,16 @@
 package com.framerevive.app
 
+enum class SlideMode { SINGLE, PAIR, COLLAGE }
+
 /** History stores catalog references, never decoded images. */
-data class FrameSlide(val photos: List<FramePhoto>) {
-    init { require(photos.size in 1..4); require(photos.map { it.id }.distinct().size == photos.size) }
-    val collage: Boolean get() = photos.size > 1
+data class FrameSlide(val photos: List<FramePhoto>, val mode: SlideMode = if (photos.size == 1) SlideMode.SINGLE else SlideMode.COLLAGE) {
+    init {
+        require(photos.size in 1..4); require(photos.map { it.id }.distinct().size == photos.size)
+        require(mode != SlideMode.SINGLE || photos.size == 1); require(mode != SlideMode.PAIR || photos.size == 2)
+    }
+    /** Curated collage only; pairs use the ordinary one-photo-per-interval cadence. */
+    val collage: Boolean get() = mode == SlideMode.COLLAGE
+    val pair: Boolean get() = mode == SlideMode.PAIR
     val id: String get() = photos.joinToString("") { "${it.id.length}:${it.id}" }
 }
 
@@ -28,6 +35,8 @@ class CollageCadence {
 
 /** Pixel geometry kept independent of Android for coverage and fit tests. */
 object CollageLayout {
+    /** Most of a photo a paired or collaged cell may lose to centre cropping. */
+    const val MAX_CROP = 0.30f
     data class Box(val left: Float,val top: Float,val right: Float,val bottom: Float) {
         val width get()=right-left
         val height get()=bottom-top
@@ -39,17 +48,22 @@ object CollageLayout {
     }
     data class Size(val width:Int,val height:Int) { init { require(width>0 && height>0) } }
     data class Panel(val photo:Int,val box:Box)
-    /** Pick a template and ordering that maximize visible photo area without cropping. */
-    fun arrange(width:Int,height:Int,sizes:List<Size>,gap:Int=8):List<Panel> {
-        require(sizes.size in 2..4 && gap>=0 && width>gap*5 && height>gap*5)
-        fun stripes(columns:Int,rows:Int):List<Box> {
-            val w=(width-gap*(columns+1)).toFloat()/columns;val h=(height-gap*(rows+1)).toFloat()/rows
-            return (0 until columns*rows).map { i -> val x=gap+(i%columns)*(w+gap);val y=gap+(i/columns)*(h+gap);Box(x,y,x+w,y+h) }
-        }
+
+    private fun permutations(indices:List<Int>):List<List<Int>> =
+        if(indices.isEmpty()) listOf(emptyList()) else indices.flatMap { i -> permutations(indices-i).map { listOf(i)+it } }
+
+    private fun stripes(width:Int,height:Int,columns:Int,rows:Int,gap:Int):List<Box> {
+        val w=(width-gap*(columns+1)).toFloat()/columns;val h=(height-gap*(rows+1)).toFloat()/rows
+        return (0 until columns*rows).map { i -> val x=gap+(i%columns)*(w+gap);val y=gap+(i/columns)*(h+gap);Box(x,y,x+w,y+h) }
+    }
+
+    /** Every arrangement we will try for [count] photos: columns, rows, a grid, and single-plus-two shapes. */
+    fun templates(width:Int,height:Int,count:Int,gap:Int=8):List<List<Box>> {
+        require(count in 2..4 && gap>=0 && width>gap*5 && height>gap*5)
         val templates=ArrayList<List<Box>>()
-        templates+=stripes(sizes.size,1);templates+=stripes(1,sizes.size)
-        if(sizes.size==4) templates+=cells(width,height,gap)
-        if(sizes.size==3) {
+        templates+=stripes(width,height,count,1,gap);templates+=stripes(width,height,1,count,gap)
+        if(count==4) templates+=cells(width,height,gap)
+        if(count==3) {
             val x=(width-gap)/2f;val y=(height-gap)/2f
             val right=Box(x+gap,gap.toFloat(),width-gap.toFloat(),height-gap.toFloat())
             val left=Box(gap.toFloat(),gap.toFloat(),x,height-gap.toFloat())
@@ -60,14 +74,86 @@ object CollageLayout {
             templates+=listOf(top,Box(bottom.left,bottom.top,x,bottom.bottom),Box(x+gap,bottom.top,bottom.right,bottom.bottom))
             templates+=listOf(bottom,Box(top.left,top.top,x,top.bottom),Box(x+gap,top.top,top.right,top.bottom))
         }
-        fun permutations(indices:List<Int>):List<List<Int>> = if(indices.isEmpty()) listOf(emptyList()) else indices.flatMap { i -> permutations(indices-i).map { listOf(i)+it } }
+        return templates
+    }
+
+    /** Pick a template and ordering that maximize visible photo area without cropping. */
+    fun arrange(width:Int,height:Int,sizes:List<Size>,gap:Int=8):List<Panel> {
+        require(sizes.size in 2..4)
         var best=emptyList<Panel>();var bestScore=-1f
-        for(template in templates) for(order in permutations(sizes.indices.toList())) {
+        for(template in templates(width,height,sizes.size,gap)) for(order in permutations(sizes.indices.toList())) {
             val score=template.indices.sumOf { i -> val size=sizes[order[i]];val fitted=fit(size.width,size.height,template[i]);(fitted.width*fitted.height).toDouble() }.toFloat()
             if(score>bestScore+1f) { bestScore=score;best=template.mapIndexed { i,box -> Panel(order[i],box) } }
         }
         return best
     }
+
+    /** Share of a photo lost when it is centre cropped to cover a cell; symmetric in aspect mismatch. */
+    fun crop(cell:Box,size:Size):Float {
+        require(cell.width>0f && cell.height>0f)
+        val ratio=(cell.width/cell.height)/(size.width.toFloat()/size.height)
+        return if(ratio>=1f) 1f-1f/ratio else 1f-ratio
+    }
+
+    data class Fill(val panels:List<Panel>,val crop:Float)
+
+    /**
+     * Template and photo order that cover the frame with the least cropping, or null when every
+     * arrangement would cut away more than [maxCrop] of some photo. Two photos reuse the pair layout,
+     * which splits the halves proportionally so both lose the same share.
+     */
+    fun fill(width:Int,height:Int,sizes:List<Size>,gap:Int=8,maxCrop:Float=MAX_CROP):Fill? {
+        require(sizes.size in 2..4)
+        if(sizes.size==2) {
+            val layout=pair(width,height,sizes[0],sizes[1],height>width,gap)
+            return if(layout.crop<=maxCrop) Fill(layout.boxes.mapIndexed { i,box -> Panel(i,box) },layout.crop) else null
+        }
+        var best=emptyList<Panel>();var bestCrop=Float.MAX_VALUE
+        for(template in templates(width,height,sizes.size,gap)) for(order in permutations(sizes.indices.toList())) {
+            val worst=template.indices.maxOf { i -> crop(template[i],sizes[order[i]]) }
+            if(worst<bestCrop-0.001f) { bestCrop=worst;best=template.mapIndexed { i,box -> Panel(order[i],box) } }
+        }
+        return if(bestCrop<=maxCrop) Fill(best,bestCrop) else null
+    }
+
+    /** Longest pixel edge needed to draw this photo into a cell, allowing for the crop when it covers. */
+    fun neededEdge(cell:Box,size:Size,cover:Boolean):Int {
+        require(cell.width>0f && cell.height>0f)
+        val aspect=size.width.toFloat()/size.height
+        val edge=if(!cover) maxOf(cell.width,cell.height)
+            else if(cell.width/cell.height<aspect) cell.height*aspect else cell.width/aspect
+        return edge.toInt().coerceIn(640,4096)
+    }
+
+    /**
+     * Two photos of the orientation opposite the frame fill the screen, as Lenovo's Show Pair did.
+     * Both halves share one zoom factor, so both photos lose the same proportion; [crop] reports it.
+     */
+    data class PairLayout(val boxes: List<Box>, val zoom: Float) {
+        /** Share of each photo lost to centre cropping; above 1 it trims width, below 1 it trims height. */
+        val crop: Float get() = if (zoom >= 1f) 1f - 1f / zoom else 1f - zoom
+    }
+
+    fun pair(width: Int, height: Int, first: Size, second: Size, portrait: Boolean, gap: Int = 8): PairLayout {
+        require(width > gap * 3 && height > gap * 3 && gap >= 0)
+        if (portrait) {
+            val cell = (width - gap * 2).toFloat()
+            val firstNatural = cell * first.height / first.width
+            val secondNatural = cell * second.height / second.width
+            val zoom = (height - gap * 3).toFloat() / (firstNatural + secondNatural)
+            val top = gap + firstNatural * zoom
+            return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), width - gap.toFloat(), top),
+                Box(gap.toFloat(), top + gap, width - gap.toFloat(), top + gap + secondNatural * zoom)), zoom)
+        }
+        val cell = (height - gap * 2).toFloat()
+        val firstNatural = cell * first.width / first.height
+        val secondNatural = cell * second.width / second.height
+        val zoom = (width - gap * 3).toFloat() / (firstNatural + secondNatural)
+        val left = gap + firstNatural * zoom
+        return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), left, height - gap.toFloat()),
+            Box(left + gap, gap.toFloat(), left + gap + secondNatural * zoom, height - gap.toFloat())), zoom)
+    }
+
     fun fit(width: Int,height: Int,cell: Box,fill: Boolean=false): Box {
         require(width>0 && height>0)
         val scale=if(fill) maxOf(cell.width/width,cell.height/height) else minOf(cell.width/width,cell.height/height)

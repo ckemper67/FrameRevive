@@ -14,7 +14,6 @@ import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -25,8 +24,60 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val images = LatestPhotoExecutor()
     private val cacheLock = Any()
-    private val preloader by lazy { PhotoPreloader<FramePhoto>({ it.id + it.url }, { cached(it).exists() }, { p, current -> ensureCached(p,current) }, {}) }
+    private val preloader by lazy { PhotoPreloader<FramePhoto>({ it.id + it.url }, { cached(it).exists() }, { p, current -> ensureCached(p,current) }, { onPhotoArrived() }) }
+
+    /**
+     * Where the dates go. On each picture they label their own caption inside the photo; under the group they
+     * form one bottom line, the way Google's frame shows a group, so a same-day group reads as a single date.
+     */
+    private fun refreshCaption(slide: FrameSlide?) {
+        val pattern = DateTimeFormatter.ofPattern("MMMM d, yyyy")
+        val grouped = prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_UNDER_GROUP
+        val line = when {
+            slide == null -> ""
+            slide.mode == SlideMode.SINGLE -> slide.photos.firstOrNull()?.takeIf { it.dated }?.date()?.format(pattern).orEmpty()
+            grouped -> slide.photos.filter { it.dated }.map { it.date() }.distinct().sorted().joinToString(" · ") { it.format(pattern) }
+            else -> ""
+        }
+        caption.text = line
+        caption.visibility = if (line.isNotEmpty() && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
+    }
+
+    /** Repaints a slide drawn with a placeholder, once per arrival, so a failed fetch cannot spin the UI. */
+    private fun onPhotoArrived() {
+        if(placeholderPhotos.isEmpty()) return
+        val landed=placeholderPhotos.values.filter { cached(it).exists() }
+        if(landed.isEmpty()) return
+        placeholderPhotos.keys.removeAll(landed.map { it.id }.toSet())
+        handler.post { if(!closed) lastSlide?.let { showSlide(it, fromHistory=true) } }
+    }
+
+    /** Records where the UI thread is stuck, so a freeze can be diagnosed from the controls page. */
+    private fun startWatchdog() {
+        val beat = object : Runnable {
+            override fun run() { mainTick = System.currentTimeMillis(); handler.postDelayed(this, 2000) }
+        }
+        handler.post(beat)
+        Thread {
+            while(!closed) {
+                runCatching { Thread.sleep(5000) }
+                val age = System.currentTimeMillis() - mainTick
+                if(age > 15000) mainStall = "blocked ${age/1000}s: " +
+                    android.os.Looper.getMainLooper().thread.stackTrace.take(10).joinToString(" | ")
+            }
+        }.apply { isDaemon = true; name = "frame-watchdog"; start() }
+    }
     private val collageCadence = CollageCadence()
+    private var collageDay = emptyList<FramePhoto>()
+    private var collageTheme: CollageTheme? = null
+    private var lastCollageTheme: CollageTheme? = null
+    private var lastCollageDay: java.time.LocalDate? = null
+    private var recentIds: Set<String> = emptySet()
+    private val qualityScores = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    @Volatile private var qualityDirty = false
+    @Volatile private var qualityPending = 0
+    @Volatile private var qualityMedianCache: Float? = null
+    @Volatile private var qualityMedianKnown = false
     private var previewCollageCount=2
     private var lastSlide: FrameSlide? = null
     private val network = Executors.newSingleThreadExecutor()
@@ -52,6 +103,8 @@ class MainActivity : Activity() {
     private var day = LocalDate.now()
     private var index = 0
     private val history = PhotoHistory<FrameSlide> { it.id }
+    private val DATE_ON_PICTURE = "picture"
+    private val DATE_UNDER_GROUP = "group"
     private val gestures = FrameGestures()
     private var albumId = ""
     private var sharedLink = ""
@@ -152,6 +205,7 @@ class MainActivity : Activity() {
                 readCatalog(json)
                 if (source == seed) { saveCatalog(json); seed.delete() }
             }
+            loadQualityScores()
             status.text = "$title · ${photos.size} photos\nNewest photos + this time in past years"
         } catch (e: Exception) { status.text = "Setup needs attention: ${safeMessage(e)}" }
         try {
@@ -210,6 +264,7 @@ class MainActivity : Activity() {
         val normal = PhotoSelection.playlist(photos,day,recentCount=prefs.getInt("recentCount",300),
             memoryDays=prefs.getInt("memoryDays",14),recentPercent=prefs.getInt("recentPercent",50))
         playlist = PhotoSelection.prioritize(normal,photos,priorityIds)
+        recentIds = photos.sortedByDescending { it.takenMs }.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
         preloader.clear()
         index = 0
     }
@@ -269,7 +324,8 @@ class MainActivity : Activity() {
         val blur = CheckBox(this).apply { text = "Blurred background (when not filling screen)"; isChecked = prefs.getBoolean("blurBackground", true) }
         val date = CheckBox(this).apply { text = "Show photo date"; isChecked = prefs.getBoolean("date", true) }
         val hand = CheckBox(this).apply { text = "Hand gestures: left for next, right for previous"; isChecked = prefs.getBoolean("gestures", true) }
-        layout.addView(enabled); layout.addView(crop); layout.addView(blur); layout.addView(date); layout.addView(hand)
+        val pairs = CheckBox(this).apply { text = "Show pairs: two photos of the opposite orientation fill the frame"; isChecked = prefs.getBoolean("pairs", true) }
+        layout.addView(enabled); layout.addView(crop); layout.addView(blur); layout.addView(date); layout.addView(pairs); layout.addView(hand)
         layout.addView(TextView(this).apply { text = "Checks your album hourly. " + if (FramePower.hasScreenControl(this@MainActivity)) "Sleep turns the display off and schedules automatic wake." else "Sleep dims to black until screen control is enabled." })
         val dialog = AlertDialog.Builder(this).setTitle("FrameRevive settings").setView(layout).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
         dialog.setOnShowListener {
@@ -282,7 +338,8 @@ class MainActivity : Activity() {
                     val wasSleeping = FramePower.shouldSleep(this) || sleeping
                     prefs.edit().putString("sleepStart", a.toString()).putString("sleepEnd", b.toString())
                         .putBoolean("schedule", enabled.isChecked).putBoolean("crop", crop.isChecked).putBoolean("blurBackground",blur.isChecked)
-                        .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light).apply()
+                        .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light)
+                        .putBoolean("pairs",pairs.isChecked).apply()
                     image.blurredBackground = blur.isChecked
                     image.scaleType = if (crop.isChecked) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                     caption.visibility = if (date.isChecked) View.VISIBLE else View.GONE
@@ -318,25 +375,92 @@ class MainActivity : Activity() {
     }
 
     private fun cached(p: FramePhoto): File {
-        val hash = MessageDigest.getInstance("SHA-256").digest(p.id.toByteArray()).joinToString("") { "%02x".format(it) }
-        return File(File(filesDir, "photo-cache").apply { mkdirs() }, "$hash.jpg")
+        val d = resources.displayMetrics
+        return File(File(filesDir, "photo-cache").apply { mkdirs() }, FrameCache.name(p.id, FrameCache.suffix(d.widthPixels, d.heightPixels)))
     }
     private fun ensureCached(p:FramePhoto,current:()->Boolean = { true }) {
         val file=cached(p)
         if(synchronized(cacheLock) { file.exists() } || !current()) return
         val d=resources.displayMetrics
         val reader=client
-        val bytes=reader.request(p.url + "=w${d.widthPixels}-h${d.heightPixels}",image=true)
+        val bytes=reader.request(p.url + FrameCache.suffix(d.widthPixels, d.heightPixels),image=true)
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
         if(!current()) return
         synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
+        runCatching { ensureScored(p) }
     }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(cached(p).path,bounds)
         CollageLayout.Size(bounds.outWidth,bounds.outHeight)
+    }
+    private fun qualityFile() = File(filesDir, "photo-quality.json")
+    private fun loadQualityScores() {
+        runCatching {
+            val json = JSONObject(qualityFile().readText())
+            val rows = json.optJSONObject("scores") ?: JSONObject()
+            for (id in rows.keys()) qualityScores[id] = rows.getDouble(id).toFloat()
+            qualityMedianCache = if (json.has("median")) json.getDouble("median").toFloat() else null
+            qualityMedianKnown = qualityMedianCache != null
+        }
+    }
+    private fun flushQuality() {
+        if (!qualityDirty) return
+        qualityDirty = false; qualityPending = 0
+        runCatching {
+            val rows = JSONObject(); qualityScores.forEach { (id, score) -> rows.put(id, score.toDouble()) }
+            val median = qualityMedian()
+            val json = JSONObject().put("scores", rows)
+            if (median != null) json.put("median", median.toDouble())
+            PrivatePhotosClient.writeAtomic(qualityFile(), json.toString().toByteArray(Charsets.UTF_8))
+        }
+    }
+    private fun qualityMedian(): Float? {
+        if (!qualityMedianKnown) { qualityMedianCache = PhotoQuality.median(qualityScores.values); qualityMedianKnown = true }
+        return qualityMedianCache
+    }
+    /** Scores a cached photo once, from an analysis copy no larger than [PhotoQuality.ANALYSIS_EDGE]. */
+    private fun ensureScored(p: FramePhoto) {
+        if (qualityScores.containsKey(p.id)) return
+        val file = cached(p); if (!file.exists()) return
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PhotoQuality.ANALYSIS_EDGE) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return
+        var small: android.graphics.Bitmap? = null
+        try {
+            val scale = PhotoQuality.ANALYSIS_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height)
+            val w = maxOf(8, (bitmap.width * scale).toInt()); val h = maxOf(8, (bitmap.height * scale).toInt())
+            val copy = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bitmap, w, h, true).also { small = it } else bitmap
+            val pixels = IntArray(copy.width * copy.height)
+            copy.getPixels(pixels, 0, copy.width, 0, 0, copy.width, copy.height)
+            val luma = IntArray(pixels.size)
+            for (i in pixels.indices) {
+                val c = pixels[i]
+                luma[i] = ((77 * android.graphics.Color.red(c) + 150 * android.graphics.Color.green(c) + 29 * android.graphics.Color.blue(c)) shr 8)
+            }
+            qualityScores[p.id] = PhotoQuality.stored(PhotoQuality.measure(luma, copy.width, copy.height))
+            qualityMedianKnown = false; qualityDirty = true
+            if (++qualityPending >= 25) flushQuality()
+        } finally {
+            if (small != null && small !== bitmap) small.recycle()
+            bitmap.recycle()
+        }
+    }
+    /** Cached, and not excluded by the quality gate, for collage use. */
+    private fun usableForCollage(p: FramePhoto): Boolean =
+        cached(p).exists() && PhotoQuality.acceptable(qualityScores[p.id], qualityMedian())
+    /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
+    private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
+        if (!cached(p).exists()) null else photoSize(p)
+    }.getOrNull()
+    private fun frameOrientation(): FrameOrientation {
+        val d = resources.displayMetrics
+        return PairSelection.orientation(d.widthPixels, d.heightPixels)
     }
     private fun bitmap(p:FramePhoto,maxEdge:Int=2400):android.graphics.Bitmap {
         ensureCached(p)
@@ -346,20 +470,40 @@ class MainActivity : Activity() {
             BitmapFactory.decodeFile(file.path,bounds)
             val options=BitmapFactory.Options().apply { inSampleSize=1 }
             while(bounds.outWidth/options.inSampleSize > maxEdge || bounds.outHeight/options.inSampleSize > maxEdge) options.inSampleSize *= 2
-            BitmapFactory.decodeFile(file.path,options) ?: run { file.delete(); error("Cached image could not be decoded.") }
-        }
+            val decoded = BitmapFactory.decodeFile(file.path,options) ?: run { file.delete(); error("Cached image could not be decoded.") }
+            decoded
+        }.also { runCatching { ensureScored(p) } }
     }
     private fun planPreloads() {
         if(closed || !active || sleeping || !prefs.getBoolean("preload",true)) { preloader.clear(); return }
         if(playlist.isNotEmpty() && index >= playlist.size) rebuild()
-        val count=if(prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1) maxOf(3,collageCadence.nextCount) else 3
-        preloader.plan(playlist.drop(index).distinctBy { it.id }.take(count))
+        // A pair needs two ready photos of the opposite orientation, so keep one more queued.
+        val depth=if(prefs.getBoolean("pairs",true)) 4 else 3
+        val collageSoon=prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1
+        val count=if(collageSoon) maxOf(depth,5) else depth
+        // A same-day collage pulls photos that are not in the ordinary queue. The date has to be chosen here,
+        // while there is still time to download it: choosing it only when the collage falls due leaves nothing
+        // cached, the layout finds no usable shapes and playback silently falls back to the recent source.
+        val planned=if(collageSoon) {
+            val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
+            if(source==CollageTheme.DAY && collageDay.size < collageCadence.nextCount)
+                collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,{ true },emptySet(),setOfNotNull(lastCollageDay))
+            collageDay+playlist.drop(index)
+        } else playlist.drop(index)
+        preloader.plan(planned.distinctBy { it.id }.take(count))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
-        if(!fromHistory) { collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown() }
-        caption.text=if(slide.collage) "" else slide.photos.first().date().format(DateTimeFormatter.ofPattern("MMMM d, yyyy"))
-        caption.visibility=if(!slide.collage && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
+        if(!fromHistory) {
+            collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown()
+            // Record what was on the panel so the deck can prefer what has not been seen.
+            PhotoDeck.recorded(playHistory, slide.photos.map { it.id }, System.currentTimeMillis())
+            if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
+        }
+        // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,
+        // so no text ever lands in the paddings. Undated album entries get no label rather than January 1970.
+        val first=slide.photos.first()
+        refreshCaption(slide)
         if(priorityIds.removeAll(slide.photos.map { it.id }.toSet())) prefs.edit().putStringSet("priorityIds",priorityIds.toSet()).apply()
     }
     private fun trimCache() = synchronized(cacheLock) {
@@ -376,13 +520,56 @@ class MainActivity : Activity() {
         history.next()?.let { showSlide(it, fromHistory = true); return }
         if (day != LocalDate.now() || index >= playlist.size) rebuild()
         if (playlist.isEmpty()) { showControls(); return }
-        val selected=if(prefs.getBoolean("collages",true) && collageCadence.due(prefs.getInt("collageEvery",20)))
-            CollageCadence.candidates(playlist.drop(index),lastSlide?.photos.orEmpty(),collageCadence.nextCount) { cached(it).exists() } else emptyList()
-        if(selected.size in 2..4) {
-            val ids=selected.map { it.id }.toSet()
-            playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-            showSlide(FrameSlide(selected))
-        } else showSlide(FrameSlide(listOf(playlist[index++])))
+        val collageDue=prefs.getBoolean("collages",true) && collageCadence.due(prefs.getInt("collageEvery",20))
+        if(collageDue) {
+            val d=resources.displayMetrics
+            val avoid=lastSlide?.photos?.map { it.id }?.toSet().orEmpty()
+            val ready: (FramePhoto)->Boolean = { cached(it).exists() }
+            var theme=collageTheme ?: CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
+                .also { collageTheme=it; collageDay=emptyList() }
+            val quality: (FramePhoto)->Boolean = { usableForCollage(it) }
+            fun poolFor(source:CollageTheme):List<FramePhoto> = when(source) {
+                CollageTheme.DAY -> {
+                    if(collageDay.size < collageCadence.nextCount)
+                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,quality,avoid,setOfNotNull(lastCollageDay))
+                    collageDay
+                }
+                CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
+            }
+            // Shape and quality selection run inside the theme; the letterboxed layout is the last resort.
+            fun collageFor(source:CollageTheme):List<FramePhoto> {
+                val pool=poolFor(source)
+                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,avoid)
+                return if(fitting.size in 2..4) fitting
+                    else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,quality)
+            }
+            var selected=collageFor(theme)
+            if(selected.size !in 2..4) {
+                val alternative=CollageThemeSelection.other(theme)
+                collageFor(alternative).takeIf { it.size in 2..4 }?.let { selected=it; theme=alternative }
+            }
+            if(selected.size in 2..4) {
+                val ids=selected.map { it.id }.toSet()
+                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
+                lastCollageTheme=theme; collageTheme=null; collageDay=emptyList()
+                if(theme==CollageTheme.DAY) lastCollageDay=selected.first().date()
+                showSlide(FrameSlide(selected,SlideMode.COLLAGE))
+                return
+            }
+        }
+        // Show Pair: two photos of the orientation opposite the frame fill the screen.
+        if(prefs.getBoolean("pairs",true)) {
+            val d=resources.displayMetrics
+            val pair=PairSelection.choose(d.widthPixels,d.heightPixels,playlist.drop(index),::cachedSize,{ cached(it).exists() },
+                lastSlide?.photos?.map { it.id }?.toSet().orEmpty())
+            if(pair.size == 2) {
+                val ids=pair.map { it.id }.toSet()
+                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
+                showSlide(FrameSlide(pair,SlideMode.PAIR))
+                return
+            }
+        }
+        showSlide(FrameSlide(listOf(playlist[index++])))
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
@@ -399,9 +586,12 @@ class MainActivity : Activity() {
         images.execute {
             if (ticket != generation || closed || !active || sleeping) return@execute
             try {
-                val b = if(slide.collage) {
+                val b = if(slide.collage || slide.pair) {
                     val d=resources.displayMetrics
-                    FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),prefs.getBoolean("date",true),::photoSize) { bitmap(it,1200) }
+                    // Multi-photo slides cover the frame with the least cropping the photos allow.
+                    FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
+                        prefs.getBoolean("date",true) && prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_ON_PICTURE,
+                        ::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
@@ -468,15 +658,17 @@ class MainActivity : Activity() {
                 handler.post {
                     if (!closed) {
                         // Refresh history URLs and remove deleted items while retaining navigation within this album.
-                        if (changingAlbum) { history.clear(); collageCadence.reset() } else {
+                        if (changingAlbum) { history.clear(); collageCadence.reset(); collageDay=emptyList(); lastCollageDay=null; collageTheme=null } else {
                             val updated=fresh.associateBy { it.id }
-                            history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let(::FrameSlide) }
+                            history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let { FrameSlide(it, old.mode) } }
                         }
                         if (changingAlbum) priorityIds.clear()
                         else priorityIds.addAll(fresh.filter { it.id !in existing }.map { it.id })
                         priorityIds.retainAll(fresh.map { it.id }.toSet())
                         prefs.edit().putStringSet("priorityIds", priorityIds.toSet()).apply()
                         val hasAdditions = priorityIds.isNotEmpty()
+                        flushQuality()
+                        collageDay = emptyList()
                         albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader; photos = fresh; rebuild(); planPreloads()
                         setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
                         status.text = "$title · ${fresh.size} photos\nUpdated ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())} · checks hourly"
@@ -531,7 +723,7 @@ class MainActivity : Activity() {
         FramePower.schedule(this)
         checkSchedule(force = true); if (!playbackPaused || !displayed) showNext(); planPreloads(); checkAlbumCount()
     }
-    override fun onPause() { image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
+    override fun onPause() { flushQuality(); image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
         if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) { buttonLights.touch(); if (controls.visibility == View.VISIBLE) showControls() }
         return super.dispatchTouchEvent(event)
@@ -580,6 +772,7 @@ class MainActivity : Activity() {
         if (playbackPaused) flags += "paused"
         if (photoLoading) flags += "photoLoading"
         if(prefs.getBoolean("collages",true)) flags += "collages"
+        if(prefs.getBoolean("pairs",true)) flags += "pairs"
         if(prefs.getBoolean("preload",true)) flags += "preload"
         if (sharedLink.isNotBlank()) flags += "shared"
         if (syncing.get()) flags += "syncing"
@@ -593,8 +786,17 @@ class MainActivity : Activity() {
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
             "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
+            "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
+            "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
+            "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
+                "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
+            "previewNote" to prefs.getString("previewNote","").orEmpty(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
-            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · ${if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo collage on screen" else "Single photo"}"),
+            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
+                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen, dates " +
+                    lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo")),
+            "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
+                else "On · frame ${if(frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"} · ${if(lastSlide?.pair == true) "pair on screen" else "single photo"} · up to ${(PairSelection.MAX_CROP*100).toInt()}% crop per photo"),
             "preloadSummary" to preloadSummary, "preloadDetails" to preloadDetails,
             "frameTime" to java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.MEDIUM).format(java.util.Date()),
             "frameTimeZone" to (java.util.TimeZone.getDefault().id + " (" + java.time.ZonedDateTime.now().offset.toString() + ")"),
@@ -615,10 +817,14 @@ class MainActivity : Activity() {
             "diagnostics" to listOf(
                 "FrameRevive ${FrameWeb.VERSION}", "Android API ${android.os.Build.VERSION.SDK_INT}",
                 "Playback paused: $playbackPaused",
+                "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
+                "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
-                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos",
+                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",
+                "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
+                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${qualityScores.count { !PhotoQuality.acceptable(it.value, qualityMedian()) }} kept out of collages",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
                 "Last refresh: ${time("lastSuccessfulSync")}", "Last attempt: ${time("lastSyncAttempt")}",
@@ -663,6 +869,8 @@ class MainActivity : Activity() {
                     val recentPercent=if(changingMix) fields["recentPercent"]?.toIntOrNull() ?: error("Mix required") else prefs.getInt("recentPercent",50)
                     require(recentCount in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
                     val collageEvery=if(changingMix) fields["collageEvery"]?.toIntOrNull() ?: prefs.getInt("collageEvery",20) else prefs.getInt("collageEvery",20)
+                    val collageSource=if(changingMix) fields["collageSource"]?.takeIf { it in setOf(CollageThemeSelection.SOURCE_DAY,CollageThemeSelection.SOURCE_MIXED) }
+                        ?: CollageThemeSelection.SOURCE_DAY else prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty()
                     require(collageEvery in 5..100) { "Choose 5 to 100 photos between collages." }
                     val holidayTheme = fields["holidayTheme"] ?: prefs.getString("holidayTheme", "off").orEmpty()
                     require(holidayTheme in HolidayTheme.labels) { "Choose a holiday theme from the list." }
@@ -672,10 +880,14 @@ class MainActivity : Activity() {
                         .putBoolean("date",fields.containsKey("date")).putInt("seconds",seconds).putInt("brightness",brightness)
                     edit.putString("holidayTheme", holidayTheme)
                     if (fields["transitionSettings"] == "1") edit.putBoolean("gentleTransitions",fields.containsKey("gentleTransitions"))
+                    if (fields["dateSettings"] == "1") edit.putString("dateStyle",
+                        if (fields["dateStyle"] == DATE_UNDER_GROUP) DATE_UNDER_GROUP else DATE_ON_PICTURE)
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
+                    if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
                     if(changingMix) edit.putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
-                        .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).remove("bursts").putBoolean("preload",fields.containsKey("preload"))
+                        .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).putString("collageSource",collageSource)
+                        .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()
                     FramePower.schedule(this)
                     handler.postDelayed({
@@ -684,6 +896,7 @@ class MainActivity : Activity() {
                             image.gentleTransitions = prefs.getBoolean("gentleTransitions",true)
                             image.blurredBackground = prefs.getBoolean("blurBackground",true)
                             image.scaleType = if (prefs.getBoolean("crop",false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+                            refreshCaption(lastSlide)
                             caption.visibility = if (lastSlide?.collage != true && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
                             if(changingMix) { generation++; setPhotoLoading(false); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }
                             checkSchedule(wakeFromSchedule = wasSleeping)
@@ -693,13 +906,42 @@ class MainActivity : Activity() {
                 }
                 "previewCollage" -> {
                     if(!active || sleeping) return "Wake the frame before previewing a collage."
-                    handler.post {
-                        if(active && !closed && !sleeping) {
-                            val selected=photos.shuffled().asSequence().filter { cached(it).exists() }.take(previewCollageCount).toList()
-                            if(selected.size == previewCollageCount) { handler.removeCallbacks(advance); showSlide(FrameSlide(selected),fromHistory=true);previewCollageCount=2+(previewCollageCount-1)%3 }
+                    // A same-day collage draws photos that are usually not cached yet, so the preview waits for
+                    // them the way playback does instead of quietly substituting photos from other days.
+                    val count=previewCollageCount
+                    fun attempt(tries:Int) {
+                        handler.post {
+                            try {
+                                if(!active || closed || sleeping) return@post
+                                val d=resources.displayMetrics
+                                val ready:(FramePhoto)->Boolean = { cached(it).exists() }
+                                val quality:(FramePhoto)->Boolean = { usableForCollage(it) }
+                                val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
+                                fun poolFor(theme:CollageTheme):List<FramePhoto> = when(theme) {
+                                    CollageTheme.DAY -> CollageThemeSelection.bestDay(photos,count,quality,emptySet(),setOfNotNull(lastCollageDay))
+                                    CollageTheme.RECENT -> photos.filter { it.id in recentIds }
+                                }
+                                for(theme in listOf(source,CollageThemeSelection.other(source))) {
+                                    val pool=poolFor(theme).filter(ready)
+                                    val fitting=CollageSelection.choose(count,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,emptySet())
+                                    if(fitting.size in 2..4) {
+                                        handler.removeCallbacks(advance)
+                                        lastCollageTheme=theme
+                                        if(theme==CollageTheme.DAY) lastCollageDay=fitting.first().date()
+                                        showSlide(FrameSlide(fitting),fromHistory=true)
+                                        previewCollageCount=2+(previewCollageCount-1)%3
+                                        return@post
+                                    }
+                                }
+                                if(tries > 0) {
+                                    preloader.plan(poolFor(source).take(6))
+                                    handler.postDelayed({ attempt(tries-1) },2500)
+                                }
+                            } catch (_: Exception) { }
                         }
                     }
-                    "Showing a collage if enough cached photos are available. Pause stays unchanged."
+                    attempt(6)
+                    "Choosing a $count-photo collage. Same-day photos may need a few seconds to download."
                 }
                 "pause" -> { handler.post { setPlaybackPaused(true) }; "Slideshow paused." }
                 "resume" -> { handler.post { setPlaybackPaused(false) }; "Slideshow resumed." }

@@ -7,6 +7,41 @@
 - Add 18 installer scenarios using a native fake ADB executable, tested in Windows PowerShell 5.1 and PowerShell 7.
 - Update Gradle to 9.8.2, Android build plugin to 9.5.0, AndroidX Core to 1.19.1, Material to 1.14.0, ConstraintLayout to 2.2.2 and the Java setup action to 6.2.0. Compile against SDK 37 with Android 10 minimum support.
 
+## 0.5.26-alpha
+
+- Add Show Pair: two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did.
+  Portrait frames stack two landscape photos; landscape frames place two portrait photos side by side.
+- Share one zoom factor across both halves, refuse pairs that would crop more than 30%, and fall back to the
+  single photo with the blurred background.
+- Count a pair as one photo for the collage cadence, and keep four photos preloaded while pairing is on.
+- Request a square cache box of the panel's long edge so cropped halves keep full resolution.
+- Add the Show pairs switch to Everyday and the native settings dialog, plus Debug orientation status.
+- Choose collage photos by shape: a collage now covers the frame with the arrangement that crops each photo
+  least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when
+  no combination tiles the frame.
+- Decode each collage cell at the size it needs, so cropped cells are not upscaled.
+- Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
+  between the photos, shared rather than doubled, so pictures never bleed together.
+- Choose where capture dates go: inside each picture (default) or as one line under a group, the way
+  Google's frame shows a group. A same-day group then reads as a single date.
+- Play the whole album as a deck: photos never shown come first, then the ones shown longest ago, so
+  nothing repeats within a cycle and nothing is left unseen. Coverage is reported on the controls page.
+- Collages draw from one capture date by default; the controls page offers a Mixed option for an occasional
+  collage from the newest photos. A date offers up to twelve candidates so the layout can choose shapes that
+  compose instead of forcing whatever four photos it had, and Preview runs the same selection as playback.
+- Update the frame from the controls page without touching it: an accessibility service confirms Android's
+  installation prompt for FrameRevive only, so uploads install hands-off over WiFi and survive reboots.
+- Label every picture of a pair or collage with its own capture date, inset inside the photo rather than in the
+  passe-partout, and skip undated album entries instead of showing January 1970.
+- Try a device-owner silent install when one is available and fall back to the prompt when Android hides it.
+- Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
+- Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
+  dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Skip noticeably soft photos in collages. One grey-scale pass over a 256-pixel copy gives a normalised
+  Laplacian focus measure plus contrast, brightness and clipping; photos far below the album's own median
+  sharpness, or plainly black, blown out or flat, are left out. Scored once per photo, cached in
+  `photo-quality.json`; collages only, so pairs and single photos are never hidden.
+
 ## 0.5.24-alpha
 
 - Show the active Google Photos shared-album link in Debug connection status, with wrapping for phone screens.
