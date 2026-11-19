@@ -7,7 +7,9 @@
 - Share one zoom factor across both halves, refuse pairs that would crop more than 30%, and fall back to the
   single photo with the blurred background.
 - Count a pair as one photo for the collage cadence, and keep four photos preloaded while pairing is on.
-- Request a square cache box of the panel's long edge so cropped halves keep full resolution.
+- Request a square box of the panel's long edge so cropped halves keep full resolution.
+- Let a developer sign both build types with their own key through a gitignored `keystore.properties`, and
+  document the update rule that follows from it.
 - Add the Show pairs switch to Everyday and the native settings dialog, plus Debug orientation status.
 - Choose collage photos by shape: a collage now covers the frame with the arrangement that crops each photo
   least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when

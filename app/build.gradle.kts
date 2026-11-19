@@ -1,6 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
 }
+
+/**
+ * Optional local signing. Create keystore.properties at the repository root (gitignored) to sign debug and
+ * release builds with your own key instead of this machine's debug keystore. See docs/release-signing.md.
+ */
+val localSigning = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+val hasLocalSigning = !localSigning.getProperty("storeFile").isNullOrBlank()
 
 android {
     namespace = "com.framerevive.app"
@@ -16,11 +28,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasLocalSigning) {
+            create("local") {
+                storeFile = rootProject.file(localSigning.getProperty("storeFile"))
+                storePassword = localSigning.getProperty("storePassword")
+                keyAlias = localSigning.getProperty("keyAlias")
+                keyPassword = localSigning.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
             }
+            if (hasLocalSigning) signingConfig = signingConfigs.getByName("local")
+        }
+        debug {
+            if (hasLocalSigning) signingConfig = signingConfigs.getByName("local")
         }
     }
     compileOptions {
