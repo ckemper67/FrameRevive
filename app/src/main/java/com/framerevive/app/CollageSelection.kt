@@ -10,8 +10,8 @@ object CollageSelection {
     const val LOOKAHEAD = 6
 
     fun choose(count: Int, width: Int, height: Int, upcoming: List<FramePhoto>, size: (FramePhoto) -> CollageLayout.Size?,
-               ready: (FramePhoto) -> Boolean, avoid: Set<String>, maxCrop: Float = CollageLayout.MAX_CROP): List<FramePhoto> {
-        val pool = upcoming.asSequence().filter { it.id !in avoid }.take(LOOKAHEAD).filter { ready(it) }.toList()
+               usable: (FramePhoto) -> Boolean, avoid: Set<String>, maxCrop: Float = CollageLayout.MAX_CROP): List<FramePhoto> {
+        val pool = upcoming.asSequence().filter { it.id !in avoid }.take(LOOKAHEAD).filter { usable(it) }.toList()
         for (n in count.coerceIn(2, 4) downTo 2) {
             if (pool.size < n) continue
             best(n, width, height, pool, size, maxCrop)?.let { return it }

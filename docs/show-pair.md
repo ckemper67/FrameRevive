@@ -56,6 +56,7 @@ collage therefore shares the pair layout, and photos that cannot tile the frame 
 
 - `PairSelection` and `CollageSelection` — frame orientation, pairability and the pair/collage planners (pure Kotlin, unit tested).
 - `CollageLayout.fill`, `.crop`, `.neededEdge` — covering layouts, the share each photo loses, and the decode size a cell needs.
+- `PhotoQuality` — the focus, contrast, brightness and clipping measures, and the album-relative soft-shot gate.
 - `CollageLayout.pair` — two-cell geometry with one shared zoom factor and the crop fraction.
 - `FrameCache` — square request box and the cache file name.
 - `FrameSlide` — `SlideMode.SINGLE`, `PAIR` and `COLLAGE`; only `COLLAGE` is the curated collage cadence.

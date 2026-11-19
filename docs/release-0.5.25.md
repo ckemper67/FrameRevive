@@ -15,6 +15,9 @@
   letterboxed layout. Each cell is decoded at the size it needs.
 - Each collage draws at random either from your newest photos or from one capture date, favouring dates that
   are already cached, and falls back to the other source when nothing is ready. No new setting.
+- Collages leave out noticeably soft photos: one grey-scale pass per photo yields a normalised focus measure
+  plus contrast, brightness and clipping, judged against the album's own median. Scored once per photo and
+  cached; Debug reports the counts.
 - Retains collages, gentle transitions, the photo mix, sleep/wake, HTTPS controls and webpage APK updates.
 
 ## Install or update

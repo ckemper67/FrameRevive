@@ -23,6 +23,31 @@ Each collage picks one of two sources at random and keeps that choice while it w
 
 If the chosen source has nothing ready, the other source is tried for that collage; if neither works the collage is skipped and retried later. Shape selection still applies: the chosen photos are arranged to cover the frame, the count drops when that count cannot fit, and the letterboxed layout is the only remaining fallback. A same-day collage shows whole photos more often than a recent one, because a single afternoon rarely provides four matching shapes.
 
+## Soft shots are left out
+
+Lenovo's frame claimed to ignore blurry or grainy shots when it chose photos. Collages here use a quality gate
+built from one grey-scale pass over a 256-pixel analysis copy; the analysis is cached per photo, so each photo
+is scored once, on a background worker, in roughly ten milliseconds including the small decode.
+
+Measured on the metric (341x256 test frame): a sharp reference image scores 0.0101, the same image blurred by a
+3-pixel radius 0.0002, and by 6 pixels 0.00007 — the focus measure separates them by more than an order of
+magnitude, and the maths itself costs about 0.5 ms per frame on a desktop CPU.
+
+- **Sharpness** is the variance of the 4-neighbour Laplacian, normalised by the photo's own pixel variance, so
+  it measures structure rather than brightness.
+- **Contrast, mean brightness and clipped fraction** come from the same pass and reject frames that are flat,
+  nearly black, nearly white or mostly blown out.
+- Blur is judged **comparatively**: a photo is dropped only when it is below 12% of the album's median
+  sharpness, and only once at least 30 photos have been scored and the album median is above 0.004. Without
+  enough evidence, nothing is dropped — a soft-but-legitimate album is never filtered against itself.
+
+Scores live in `photo-quality.json` next to the photo cache. Debug reports how many photos are scored, the
+album median, and how many are kept out of collages. Photos that have not been scored yet are used normally, so
+the gate only ever removes images the frame has actually seen.
+
+Limitations: film-like grain is not detected (noise scores high on the focus measure), and the gate applies to
+collages only — pairs and single photos are never hidden.
+
 Debug's **Preview collage** cycles through 2, 3 and 4 cached photos without changing the saved frequency or pause state. The collage counter restarts with the app; it is not an exact wall-clock schedule.
 
 Burst playback has been removed for now.

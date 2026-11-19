@@ -15,6 +15,10 @@
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Skip noticeably soft photos in collages. One grey-scale pass over a 256-pixel copy gives a normalised
+  Laplacian focus measure plus contrast, brightness and clipping; photos far below the album's own median
+  sharpness, or plainly black, blown out or flat, are left out. Scored once per photo, cached in
+  `photo-quality.json`; collages only, so pairs and single photos are never hidden.
 
 ## 0.5.24-alpha
 

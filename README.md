@@ -15,7 +15,7 @@ The tested build includes a shared Google Photos album source, automatic checks 
 - **Preloading:** a bounded background queue prepares upcoming photos; Debug shows Ready, Loading, Queued and Failed states.
 - **Gentle transitions:** optional 0.6-second crossfades between photos and collages.
 - **Show pairs:** two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did; a portrait frame stacks two landscape photos. Refused pairs fall back to the single photo with the blurred background. See [Show pairs](docs/show-pair.md).
-- **Collages:** optional 2-, 3- and 4-photo collages after every 20 individual photos. Photos are chosen so their shapes cover the frame together, each collage drawing at random from your newest photos or from one capture date, with adjustable frequency and a Debug preview. See the [preloading, mix and collage guide](docs/preloading-mix-collages.md).
+- **Collages:** optional 2-, 3- and 4-photo collages after every 20 individual photos. Photos are chosen so their shapes cover the frame together, each collage drawing at random from your newest photos or from one capture date, with soft shots skipped on a cheap quality measure, adjustable frequency and a Debug preview. See the [preloading, mix and collage guide](docs/preloading-mix-collages.md).
 - **Navigation:** one active image operation and only the latest pending request, loading feedback, and history retained across same-album refreshes.
 
 Supported setup uses a Google Photos shared album link that opens without signing in. The frame checks the album count every two minutes while awake, performs a full hourly refresh, and caches downloaded photos for offline playback. New additions get a first showing before the regular photo mix.

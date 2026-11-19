@@ -31,6 +31,11 @@ class MainActivity : Activity() {
     private var lastCollageTheme: CollageTheme? = null
     private var lastCollageDay: java.time.LocalDate? = null
     private var recentIds: Set<String> = emptySet()
+    private val qualityScores = java.util.concurrent.ConcurrentHashMap<String, Float>()
+    @Volatile private var qualityDirty = false
+    @Volatile private var qualityPending = 0
+    @Volatile private var qualityMedianCache: Float? = null
+    @Volatile private var qualityMedianKnown = false
     private var previewCollageCount=2
     private var lastSlide: FrameSlide? = null
     private val network = Executors.newSingleThreadExecutor()
@@ -152,6 +157,7 @@ class MainActivity : Activity() {
                 readCatalog(json)
                 if (source == seed) { saveCatalog(json); seed.delete() }
             }
+            loadQualityScores()
             status.text = "$title · ${photos.size} photos\nNewest photos + this time in past years"
         } catch (e: Exception) { status.text = "Setup needs attention: ${safeMessage(e)}" }
         try {
@@ -335,12 +341,71 @@ class MainActivity : Activity() {
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
         if(!current()) return
         synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
+        runCatching { ensureScored(p) }
     }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(cached(p).path,bounds)
         CollageLayout.Size(bounds.outWidth,bounds.outHeight)
     }
+    private fun qualityFile() = File(filesDir, "photo-quality.json")
+    private fun loadQualityScores() {
+        runCatching {
+            val json = JSONObject(qualityFile().readText())
+            val rows = json.optJSONObject("scores") ?: JSONObject()
+            for (id in rows.keys()) qualityScores[id] = rows.getDouble(id).toFloat()
+            qualityMedianCache = if (json.has("median")) json.getDouble("median").toFloat() else null
+            qualityMedianKnown = qualityMedianCache != null
+        }
+    }
+    private fun flushQuality() {
+        if (!qualityDirty) return
+        qualityDirty = false; qualityPending = 0
+        runCatching {
+            val rows = JSONObject(); qualityScores.forEach { (id, score) -> rows.put(id, score.toDouble()) }
+            val median = qualityMedian()
+            val json = JSONObject().put("scores", rows)
+            if (median != null) json.put("median", median.toDouble())
+            PrivatePhotosClient.writeAtomic(qualityFile(), json.toString().toByteArray(Charsets.UTF_8))
+        }
+    }
+    private fun qualityMedian(): Float? {
+        if (!qualityMedianKnown) { qualityMedianCache = PhotoQuality.median(qualityScores.values); qualityMedianKnown = true }
+        return qualityMedianCache
+    }
+    /** Scores a cached photo once, from an analysis copy no larger than [PhotoQuality.ANALYSIS_EDGE]. */
+    private fun ensureScored(p: FramePhoto) {
+        if (qualityScores.containsKey(p.id)) return
+        val file = cached(p); if (!file.exists()) return
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PhotoQuality.ANALYSIS_EDGE) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return
+        var small: android.graphics.Bitmap? = null
+        try {
+            val scale = PhotoQuality.ANALYSIS_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height)
+            val w = maxOf(8, (bitmap.width * scale).toInt()); val h = maxOf(8, (bitmap.height * scale).toInt())
+            val copy = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bitmap, w, h, true).also { small = it } else bitmap
+            val pixels = IntArray(copy.width * copy.height)
+            copy.getPixels(pixels, 0, copy.width, 0, 0, copy.width, copy.height)
+            val luma = IntArray(pixels.size)
+            for (i in pixels.indices) {
+                val c = pixels[i]
+                luma[i] = ((77 * android.graphics.Color.red(c) + 150 * android.graphics.Color.green(c) + 29 * android.graphics.Color.blue(c)) shr 8)
+            }
+            qualityScores[p.id] = PhotoQuality.stored(PhotoQuality.measure(luma, copy.width, copy.height))
+            qualityMedianKnown = false; qualityDirty = true
+            if (++qualityPending >= 25) flushQuality()
+        } finally {
+            if (small != null && small !== bitmap) small.recycle()
+            bitmap.recycle()
+        }
+    }
+    /** Cached, and not excluded by the quality gate, for collage use. */
+    private fun usableForCollage(p: FramePhoto): Boolean =
+        cached(p).exists() && PhotoQuality.acceptable(qualityScores[p.id], qualityMedian())
     /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
     private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
         if (!cached(p).exists()) null else photoSize(p)
@@ -357,8 +422,9 @@ class MainActivity : Activity() {
             BitmapFactory.decodeFile(file.path,bounds)
             val options=BitmapFactory.Options().apply { inSampleSize=1 }
             while(bounds.outWidth/options.inSampleSize > maxEdge || bounds.outHeight/options.inSampleSize > maxEdge) options.inSampleSize *= 2
-            BitmapFactory.decodeFile(file.path,options) ?: run { file.delete(); error("Cached image could not be decoded.") }
-        }
+            val decoded = BitmapFactory.decodeFile(file.path,options) ?: run { file.delete(); error("Cached image could not be decoded.") }
+            decoded
+        }.also { runCatching { ensureScored(p) } }
     }
     private fun planPreloads() {
         if(closed || !active || sleeping || !prefs.getBoolean("preload",true)) { preloader.clear(); return }
@@ -398,20 +464,21 @@ class MainActivity : Activity() {
             val avoid=lastSlide?.photos?.map { it.id }?.toSet().orEmpty()
             val ready: (FramePhoto)->Boolean = { cached(it).exists() }
             var theme=collageTheme ?: CollageThemeSelection.pick().also { collageTheme=it; collageDay=emptyList() }
+            val quality: (FramePhoto)->Boolean = { usableForCollage(it) }
             fun poolFor(source:CollageTheme):List<FramePhoto> = when(source) {
                 CollageTheme.DAY -> {
                     if(collageDay.size < collageCadence.nextCount)
-                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,ready,avoid,setOfNotNull(lastCollageDay))
+                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,quality,avoid,setOfNotNull(lastCollageDay))
                     collageDay
                 }
                 CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
             }
-            // Shape selection runs inside the theme; the letterboxed layout is the last resort.
+            // Shape and quality selection run inside the theme; the letterboxed layout is the last resort.
             fun collageFor(source:CollageTheme):List<FramePhoto> {
                 val pool=poolFor(source)
-                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,ready,avoid)
+                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,avoid)
                 return if(fitting.size in 2..4) fitting
-                    else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,ready)
+                    else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,quality)
             }
             var selected=collageFor(theme)
             if(selected.size !in 2..4) {
@@ -536,6 +603,7 @@ class MainActivity : Activity() {
                         priorityIds.retainAll(fresh.map { it.id }.toSet())
                         prefs.edit().putStringSet("priorityIds", priorityIds.toSet()).apply()
                         val hasAdditions = priorityIds.isNotEmpty()
+                        flushQuality()
                         collageDay = emptyList()
                         albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader; photos = fresh; rebuild(); planPreloads()
                         setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
@@ -591,7 +659,7 @@ class MainActivity : Activity() {
         FramePower.schedule(this)
         checkSchedule(force = true); if (!playbackPaused || !displayed) showNext(); planPreloads(); checkAlbumCount()
     }
-    override fun onPause() { image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
+    override fun onPause() { flushQuality(); image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
         if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) { buttonLights.touch(); if (controls.visibility == View.VISIBLE) showControls() }
         return super.dispatchTouchEvent(event)
@@ -678,6 +746,7 @@ class MainActivity : Activity() {
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; recent or same-day chosen per collage",
                 "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
+                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${qualityScores.count { !PhotoQuality.acceptable(it.value, qualityMedian()) }} kept out of collages",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
                 "Last refresh: ${time("lastSuccessfulSync")}", "Last attempt: ${time("lastSyncAttempt")}",
