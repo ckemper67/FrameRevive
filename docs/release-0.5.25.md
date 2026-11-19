@@ -10,6 +10,9 @@
   first refresh after updating re-fetches larger copies and the smaller cached files are dropped.
 - **Show pairs** is on by default in Everyday and in the on-frame settings dialog. Debug reports the frame
   orientation, whether the current slide is a pair, and the crop limit.
+- Collages now choose photos by shape too: the arrangement that crops each photo least covers the frame, a
+  count that cannot fit drops to the next smaller one, and only combinations that tile nothing keep the
+  letterboxed layout. Each cell is decoded at the size it needs.
 - Retains collages, gentle transitions, the photo mix, sleep/wake, HTTPS controls and webpage APK updates.
 
 ## Install or update
@@ -23,7 +26,7 @@ installation on the frame. Do not uninstall first.
 
 ## Validation and limits
 
-Android build and 79 unit tests pass. The pair geometry, planner, crop limit and cache naming are covered by
+Android build and 87 unit tests pass. The pair geometry, planner, crop limit and cache naming are covered by
 unit tests, including portrait and landscape frames and mixed aspect ratios. On-frame confirmation of pair
 rendering is still pending; the frame was not connected over USB when this build was produced.
 

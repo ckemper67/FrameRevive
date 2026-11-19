@@ -9,6 +9,10 @@
 - Count a pair as one photo for the collage cadence, and keep four photos preloaded while pairing is on.
 - Request a square cache box of the panel's long edge so cropped halves keep full resolution.
 - Add the Show pairs switch to Everyday and the native settings dialog, plus Debug orientation status.
+- Choose collage photos by shape: a collage now covers the frame with the arrangement that crops each photo
+  least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when
+  no combination tiles the frame.
+- Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 
 ## 0.5.24-alpha
 

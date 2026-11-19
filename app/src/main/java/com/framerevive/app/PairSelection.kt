@@ -8,7 +8,7 @@ enum class FrameOrientation { PORTRAIT, LANDSCAPE }
  * photo are refused so very wide panoramas keep their whole frame instead of being cut down.
  */
 object PairSelection {
-    const val MAX_CROP = 0.30f
+    const val MAX_CROP = CollageLayout.MAX_CROP
     const val LOOKAHEAD = 8
 
     fun orientation(width: Int, height: Int): FrameOrientation =

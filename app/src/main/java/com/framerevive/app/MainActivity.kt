@@ -359,7 +359,7 @@ class MainActivity : Activity() {
         if(playlist.isNotEmpty() && index >= playlist.size) rebuild()
         // A pair needs two ready photos of the opposite orientation, so keep one more queued.
         val depth=if(prefs.getBoolean("pairs",true)) 4 else 3
-        val count=if(prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1) maxOf(depth,collageCadence.nextCount) else depth
+        val count=if(prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1) maxOf(depth,5) else depth
         preloader.plan(playlist.drop(index).distinctBy { it.id }.take(count))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
@@ -383,13 +383,20 @@ class MainActivity : Activity() {
         history.next()?.let { showSlide(it, fromHistory = true); return }
         if (day != LocalDate.now() || index >= playlist.size) rebuild()
         if (playlist.isEmpty()) { showControls(); return }
-        val selected=if(prefs.getBoolean("collages",true) && collageCadence.due(prefs.getInt("collageEvery",20)))
-            CollageCadence.candidates(playlist.drop(index),lastSlide?.photos.orEmpty(),collageCadence.nextCount) { cached(it).exists() } else emptyList()
-        if(selected.size in 2..4) {
-            val ids=selected.map { it.id }.toSet()
-            playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-            showSlide(FrameSlide(selected,SlideMode.COLLAGE))
-            return
+        val collageDue=prefs.getBoolean("collages",true) && collageCadence.due(prefs.getInt("collageEvery",20))
+        if(collageDue) {
+            val d=resources.displayMetrics
+            val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,playlist.drop(index),::cachedSize,
+                { cached(it).exists() },lastSlide?.photos?.map { it.id }?.toSet().orEmpty())
+            // Keep the collage when no shapes tile the frame; the renderer then uses the letterboxed layout.
+            val selected=if(fitting.size in 2..4) fitting
+                else CollageCadence.candidates(playlist.drop(index),lastSlide?.photos.orEmpty(),collageCadence.nextCount) { cached(it).exists() }
+            if(selected.size in 2..4) {
+                val ids=selected.map { it.id }.toSet()
+                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
+                showSlide(FrameSlide(selected,SlideMode.COLLAGE))
+                return
+            }
         }
         // Show Pair: two photos of the orientation opposite the frame fill the screen.
         if(prefs.getBoolean("pairs",true)) {
@@ -422,9 +429,9 @@ class MainActivity : Activity() {
             try {
                 val b = if(slide.collage || slide.pair) {
                     val d=resources.displayMetrics
-                    // Pairs fill their half of the screen, so they need more pixels than a letterboxed cell.
+                    // Multi-photo slides cover the frame with the least cropping the photos allow.
                     FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
-                        prefs.getBoolean("date",true) && !slide.pair,::photoSize,{ bitmap(it,if(slide.pair) 1600 else 1200) },fill=slide.pair)
+                        prefs.getBoolean("date",true) && !slide.pair,::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()

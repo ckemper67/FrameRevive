@@ -45,9 +45,17 @@ cached a landscape photo at 1080×720 on a portrait frame — too small to crop 
 box is part of the cache file name, so the first refresh after updating fetches the larger copies and the
 smaller files are dropped by the usual cache cleanup.
 
+## Collages use the same geometry
+
+Curated collages of 2, 3 or 4 photos pick photos the same way: `CollageLayout.fill` scores every template and
+photo order by the worst crop any single photo would take, `CollageSelection` chooses the combination that
+covers the frame, and a count that cannot cover the frame falls back to the next smaller one. A 2-photo
+collage therefore shares the pair layout, and photos that cannot tile the frame keep the letterboxed layout.
+
 ## Files
 
-- `PairSelection` — frame orientation, pairability and the pair planner (pure Kotlin, unit tested).
+- `PairSelection` and `CollageSelection` — frame orientation, pairability and the pair/collage planners (pure Kotlin, unit tested).
+- `CollageLayout.fill`, `.crop`, `.neededEdge` — covering layouts, the share each photo loses, and the decode size a cell needs.
 - `CollageLayout.pair` — two-cell geometry with one shared zoom factor and the crop fraction.
 - `FrameCache` — square request box and the cache file name.
 - `FrameSlide` — `SlideMode.SINGLE`, `PAIR` and `COLLAGE`; only `COLLAGE` is the curated collage cadence.
