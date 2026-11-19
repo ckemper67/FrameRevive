@@ -24,6 +24,24 @@ Check what an APK carries before installing it:
 apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Record the fingerprint of the key you lock a device to; every later update must carry it. `keytool -list -v`
+on the keystore prints it.
+
+### Installing a build made elsewhere
+
+A frame locked to your development key cannot install an upstream release directly, because that APK carries
+the publisher's certificate. Re-sign it first; the result is signed by you, not by them:
+
+```bash
+./tools/resign-apk.sh --in FrameRevive-<version>-alpha.apk \
+    --out FrameRevive-<version>-dev.apk --properties keystore.properties
+```
+
+The script strips any old JAR signature, signs with your key, and prints the resulting certificate and package
+lines. Two rules follow from it: never redistribute a re-signed build as though it came from the original
+publisher, and remember the version code still has to be equal to or higher than the installed one, so a
+re-signed older release will be refused.
+
 **Android replaces an installed app only when the new APK has the same certificate and a version code that is
 not lower.** So a first install on a frame accepts any key, but every later update — through the webpage
 updater or `adb install -r` — must be signed by the same key as the installed build. A different key fails with
