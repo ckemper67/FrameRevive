@@ -14,6 +14,16 @@ The layout is chosen from tall side-by-side panels, stacked panels, a larger mai
 
 Pairs are separate from collages and run in between them; see [Show pairs](show-pair.md). A pair counts as one photo for the collage counter.
 
+## Collage themes
+
+**Mix** is the default: a collage draws from the ordinary upcoming playlist, so it can hold a recent photo next to a photo from a past year, exactly like the slideshow itself.
+
+**Recent** keeps every member inside the newest *Recent photo count* set — the same rule the mix uses — so a collage never leaves the current photos.
+
+**Same day** groups photos by capture date and picks one date instead of unrelated pictures. Dates with at least the wanted number of photos qualify; a date whose photos are all cached wins, then the date with the most photos, then the newest. The date used for one collage is skipped for the next one, and that date's photos are queued for download as soon as the collage is due so playback can keep moving until they arrive. If no date has enough photos, the collage is skipped and retried later.
+
+Shape selection still applies inside the theme: the chosen photos are arranged to cover the frame, the count drops when that count cannot fit, and the letterboxed layout is kept only when no combination tiles the frame. A same-day collage therefore shows whole photos more often than a mixed one, because a single afternoon rarely provides four matching shapes.
+
 Debug's **Preview collage** cycles through 2, 3 and 4 cached photos without changing the saved frequency or pause state. The collage counter restarts with the app; it is not an exact wall-clock schedule.
 
 Burst playback has been removed for now.

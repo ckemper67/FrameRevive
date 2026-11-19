@@ -13,6 +13,8 @@
 - Collages now choose photos by shape too: the arrangement that crops each photo least covers the frame, a
   count that cannot fit drops to the next smaller one, and only combinations that tile nothing keep the
   letterboxed layout. Each cell is decoded at the size it needs.
+- Collage theme: Mix (default), Recent (newest photos only) or Same day (photos from one capture date,
+  favouring dates that are already cached).
 - Retains collages, gentle transitions, the photo mix, sleep/wake, HTTPS controls and webpage APK updates.
 
 ## Install or update
@@ -26,7 +28,7 @@ installation on the frame. Do not uninstall first.
 
 ## Validation and limits
 
-Android build and 87 unit tests pass. The pair geometry, planner, crop limit and cache naming are covered by
+Android build and 93 unit tests pass. The pair geometry, planner, crop limit and cache naming are covered by
 unit tests, including portrait and landscape frames and mixed aspect ratios. On-frame confirmation of pair
 rendering is still pending; the frame was not connected over USB when this build was produced.
 

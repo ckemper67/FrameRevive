@@ -13,6 +13,8 @@
   least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when
   no combination tiles the frame.
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
+- Add a collage theme: Mix keeps the ordinary playlist, Recent stays inside the newest photos, and Same day
+  groups photos from one capture date, preferring dates whose photos are already cached.
 
 ## 0.5.24-alpha
 
