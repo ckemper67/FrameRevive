@@ -9,13 +9,11 @@ class CollageThemeTest {
     private fun photo(id:Int,day:String)=FramePhoto(id.toString(),"old",
         LocalDate.parse(day).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),0,0)
 
-    @Test fun themeParsingFallsBackToMixed() {
-        assertEquals(CollageTheme.MIXED,CollageThemeSelection.theme(null))
-        assertEquals(CollageTheme.MIXED,CollageThemeSelection.theme("nonsense"))
-        assertEquals(CollageTheme.RECENT,CollageThemeSelection.theme("recent"))
-        assertEquals(CollageTheme.DAY,CollageThemeSelection.theme("day"))
-        assertEquals("day",CollageThemeSelection.value(CollageTheme.DAY))
-        assertEquals("mixed",CollageThemeSelection.value(CollageTheme.MIXED))
+    @Test fun eachCollagePicksOneOfTheTwoSourcesAndCanFallBackToTheOther() {
+        val draws=(1..40).map { CollageThemeSelection.pick(kotlin.random.Random(it)) }
+        assertEquals(setOf(CollageTheme.RECENT,CollageTheme.DAY),draws.toSet())
+        assertEquals(CollageTheme.DAY,CollageThemeSelection.other(CollageTheme.RECENT))
+        assertEquals(CollageTheme.RECENT,CollageThemeSelection.other(CollageTheme.DAY))
     }
     @Test fun bestDayGroupsOneCaptureDateAndSkipsThinDays() {
         val album=listOf(photo(1,"2019-07-04"),photo(2,"2019-07-04"),photo(3,"2019-07-04"),

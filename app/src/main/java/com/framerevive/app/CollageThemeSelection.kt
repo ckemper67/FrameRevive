@@ -3,23 +3,21 @@ package com.framerevive.app
 import java.time.LocalDate
 
 /** Which photos a curated collage may draw from. */
-enum class CollageTheme { MIXED, RECENT, DAY }
+enum class CollageTheme { RECENT, DAY }
 
 /**
- * Collage themes. Mixed keeps the ordinary slideshow window, Recent stays inside the newest photos that
- * the photo mix already treats as recent, and Same day groups every photo taken on one date so a collage
- * is one afternoon or one birthday instead of unrelated pictures.
+ * Collages are decided per collage and need no setting: each one draws either from the newest photos that
+ * the photo mix already treats as recent, or from a single capture date, so a collage is one afternoon or
+ * one birthday instead of unrelated pictures. The other source is tried when the chosen one has nothing
+ * ready.
  */
 object CollageThemeSelection {
     const val MAX_MEMBERS = 4
 
-    fun theme(value: String?): CollageTheme = when (value) {
-        "recent" -> CollageTheme.RECENT
-        "day" -> CollageTheme.DAY
-        else -> CollageTheme.MIXED
-    }
+    fun pick(random: kotlin.random.Random = kotlin.random.Random.Default): CollageTheme =
+        if (random.nextBoolean()) CollageTheme.RECENT else CollageTheme.DAY
 
-    fun value(theme: CollageTheme): String = theme.name.lowercase()
+    fun other(theme: CollageTheme): CollageTheme = if (theme == CollageTheme.RECENT) CollageTheme.DAY else CollageTheme.RECENT
 
     /**
      * Members of the best single capture date: a fully cached date first, then the date with the most

@@ -27,6 +27,8 @@ class MainActivity : Activity() {
     private val preloader by lazy { PhotoPreloader<FramePhoto>({ it.id + it.url }, { cached(it).exists() }, { p, current -> ensureCached(p,current) }, {}) }
     private val collageCadence = CollageCadence()
     private var collageDay = emptyList<FramePhoto>()
+    private var collageTheme: CollageTheme? = null
+    private var lastCollageTheme: CollageTheme? = null
     private var lastCollageDay: java.time.LocalDate? = null
     private var recentIds: Set<String> = emptySet()
     private var previewCollageCount=2
@@ -270,14 +272,6 @@ class MainActivity : Activity() {
         val hand = CheckBox(this).apply { text = "Hand gestures: left for next, right for previous"; isChecked = prefs.getBoolean("gestures", true) }
         val pairs = CheckBox(this).apply { text = "Show pairs: two photos of the opposite orientation fill the frame"; isChecked = prefs.getBoolean("pairs", true) }
         layout.addView(enabled); layout.addView(crop); layout.addView(blur); layout.addView(date); layout.addView(pairs); layout.addView(hand)
-        val themes = arrayOf("Mixed — any upcoming photos", "Recent — newest photos only", "Same day — photos from one date")
-        layout.addView(TextView(this).apply { text = "Collage theme" })
-        val theme = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, themes)
-                .also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            setSelection(CollageThemeSelection.theme(prefs.getString("collageTheme", null)).ordinal)
-        }
-        layout.addView(theme)
         layout.addView(TextView(this).apply { text = "Checks your album hourly. " + if (FramePower.hasScreenControl(this@MainActivity)) "Sleep turns the display off and schedules automatic wake." else "Sleep dims to black until screen control is enabled." })
         val dialog = AlertDialog.Builder(this).setTitle("FrameRevive settings").setView(layout).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
         dialog.setOnShowListener {
@@ -291,8 +285,7 @@ class MainActivity : Activity() {
                     prefs.edit().putString("sleepStart", a.toString()).putString("sleepEnd", b.toString())
                         .putBoolean("schedule", enabled.isChecked).putBoolean("crop", crop.isChecked).putBoolean("blurBackground",blur.isChecked)
                         .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light)
-                        .putBoolean("pairs",pairs.isChecked)
-                        .putString("collageTheme",arrayOf("mixed","recent","day")[theme.selectedItemPosition]).apply()
+                        .putBoolean("pairs",pairs.isChecked).apply()
                     image.blurredBackground = blur.isChecked
                     image.scaleType = if (crop.isChecked) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                     caption.visibility = if (date.isChecked) View.VISIBLE else View.GONE
@@ -403,26 +396,33 @@ class MainActivity : Activity() {
         if(collageDue) {
             val d=resources.displayMetrics
             val avoid=lastSlide?.photos?.map { it.id }?.toSet().orEmpty()
-            val theme=CollageThemeSelection.theme(prefs.getString("collageTheme",null))
-            val pool=when(theme) {
+            val ready: (FramePhoto)->Boolean = { cached(it).exists() }
+            var theme=collageTheme ?: CollageThemeSelection.pick().also { collageTheme=it; collageDay=emptyList() }
+            fun poolFor(source:CollageTheme):List<FramePhoto> = when(source) {
                 CollageTheme.DAY -> {
                     if(collageDay.size < collageCadence.nextCount)
-                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,{ cached(it).exists() },avoid,
-                            setOfNotNull(lastCollageDay))
+                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,ready,avoid,setOfNotNull(lastCollageDay))
                     collageDay
                 }
                 CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
-                CollageTheme.MIXED -> playlist.drop(index)
             }
-            val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,
-                { cached(it).exists() },avoid)
-            // Keep the collage when no shapes tile the frame; the renderer then uses the letterboxed layout.
-            val selected=if(fitting.size in 2..4) fitting
-                else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount) { cached(it).exists() }
+            // Shape selection runs inside the theme; the letterboxed layout is the last resort.
+            fun collageFor(source:CollageTheme):List<FramePhoto> {
+                val pool=poolFor(source)
+                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,ready,avoid)
+                return if(fitting.size in 2..4) fitting
+                    else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,ready)
+            }
+            var selected=collageFor(theme)
+            if(selected.size !in 2..4) {
+                val alternative=CollageThemeSelection.other(theme)
+                collageFor(alternative).takeIf { it.size in 2..4 }?.let { selected=it; theme=alternative }
+            }
             if(selected.size in 2..4) {
                 val ids=selected.map { it.id }.toSet()
                 playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-                if(theme==CollageTheme.DAY) { lastCollageDay=selected.first().date(); collageDay=emptyList() }
+                lastCollageTheme=theme; collageTheme=null; collageDay=emptyList()
+                if(theme==CollageTheme.DAY) lastCollageDay=selected.first().date()
                 showSlide(FrameSlide(selected,SlideMode.COLLAGE))
                 return
             }
@@ -527,7 +527,7 @@ class MainActivity : Activity() {
                 handler.post {
                     if (!closed) {
                         // Refresh history URLs and remove deleted items while retaining navigation within this album.
-                        if (changingAlbum) { history.clear(); collageCadence.reset(); collageDay=emptyList(); lastCollageDay=null } else {
+                        if (changingAlbum) { history.clear(); collageCadence.reset(); collageDay=emptyList(); lastCollageDay=null; collageTheme=null } else {
                             val updated=fresh.associateBy { it.id }
                             history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let { FrameSlide(it, old.mode) } }
                         }
@@ -645,14 +645,12 @@ class MainActivity : Activity() {
             if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions")) flags += name
         }
         if (FramePower.hasScreenControl(this)) flags += "hardwareSleep"
-        val collageTheme=CollageThemeSelection.theme(prefs.getString("collageTheme",null))
-        val collageThemeLabel=when(collageTheme) { CollageTheme.RECENT -> "Recent"; CollageTheme.DAY -> "Same day"; CollageTheme.MIXED -> "Mixed" }
         val text = mapOf(
             "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
-            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Theme: $collageThemeLabel · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · ${if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo collage on screen" else "Single photo"}"),
-            "collageTheme" to CollageThemeSelection.value(collageTheme),
+            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
+                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen" else "Single photo")),
             "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
                 else "On · frame ${if(frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"} · ${if(lastSlide?.pair == true) "pair on screen" else "single photo"} · up to ${(PairSelection.MAX_CROP*100).toInt()}% crop per photo"),
             "preloadSummary" to preloadSummary, "preloadDetails" to preloadDetails,
@@ -678,7 +676,7 @@ class MainActivity : Activity() {
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
-                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; theme $collageThemeLabel",
+                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; recent or same-day chosen per collage",
                 "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
@@ -733,8 +731,7 @@ class MainActivity : Activity() {
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
-                    if(changingMix) edit.putString("collageTheme",CollageThemeSelection.value(CollageThemeSelection.theme(fields["collageTheme"])))
-                        .putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
+                    if(changingMix) edit.putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()
                     FramePower.schedule(this)
