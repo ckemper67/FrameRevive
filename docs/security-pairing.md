@@ -2,6 +2,43 @@
 
 The management listener now accepts TLS 1.2 with authenticated ECDHE_RSA/AES-GCM only. It has no HTTP fallback. The old bearer key rotates once on the first 0.5.8 startup; replace your old bookmark with the new HTTPS link shown on the frame. App upgrades preserve the device certificate and key. Uninstalling/resetting the app loses that identity and requires new pairing.
 
+## Importing the certificate on macOS or iOS
+
+The certificate is self-signed for the frame's own hostname, so trust is granted per computer or phone:
+
+- **macOS:** double-click `framerevive-controls.pem` to add it to Keychain Access, open the certificate,
+  expand **Trust**, set "When using this certificate" to **Always Trust** and authenticate. For scripts,
+  skip the keychain entirely: `curl --cacert framerevive-controls.pem https://<frame-host>:8765/`.
+- **iOS/iPadOS:** AirDrop or email the `.pem`, install the downloaded profile under
+  Settings → General → VPN & Device Management, then enable full trust under
+  Settings → General → About → Certificate Trust Settings.
+
+## Removing the certificate on another machine
+
+Each machine keeps its own copy, so removing it is per machine. Compare the SHA-256 fingerprint with the one
+the frame currently shows: anything else named `framerevive-*` is stale from an earlier identity.
+
+- **macOS:** `./tools/remove-frame-cert.sh` lists every certificate whose name matches; add `--all --yes` to
+  delete them from the login keychain, or `--sha1 <HASH> --yes` for one. Deleting the certificate also removes
+  its Always Trust setting. System-keychain copies need `sudo security delete-certificate -Z <HASH>
+  /Library/Keychains/System.keychain`. Quit and reopen Safari/Chrome afterwards.
+- **Windows:** `certutil -user -store Root | findstr /i framerevive` lists them, `certutil -user -delstore
+  Root "<SHA1 without spaces>"` removes one from your user store, and the same without `-user` from an
+  elevated prompt for the machine store. The Windows installer prints the matching removal command when it
+  imports the certificate.
+- **iOS/iPadOS:** Settings → General → VPN & Device Management → tap the installed profile → Remove Profile.
+  The entry in Certificate Trust Settings disappears with it.
+- **Firefox (any OS):** Settings → Privacy & Security → Certificates → View Certificates → Authorities →
+  select the entry → Delete or Distrust.
+- **Linux:** `sudo rm /usr/local/share/ca-certificates/framerevive.crt && sudo update-ca-certificates --fresh`;
+  for Chromium's NSS store, `certutil -d sql:$HOME/.pki/nssdb -D -n framerevive`.
+- **Android:** Settings → Security → Encryption & credentials → User credentials → select the CA → Remove.
+
+The validity dates use UTCTime, as RFC 5280 requires for years 1950-2049. Builds before 0.5.25 emitted
+GeneralizedTime for those dates, which strict validators rejected with "format error in certificate's
+notBefore field" even after the certificate was trusted; the identity rotates once on upgrade because the
+keystore alias changed.
+
 ## Establish trust before sending credentials
 
 Tap the slideshow for controls using your paired Bluetooth mouse. Read the new HTTPS link and certificate SHA-256 fingerprint directly from the frame. On a browser's first certificate warning, inspect the certificate and compare its SHA-256 fingerprint with the frame before creating a site exception. If the browser does not support inspecting and remembering a verified exception, use the USB certificate setup on Windows. Do not blindly bypass warnings or use an HTTP download to obtain a trusted certificate.

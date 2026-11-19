@@ -1,5 +1,55 @@
 # Maintainer signing and release checklist
 
+## Using your own key for development
+
+The build signs debug and release APKs with this machine's Android debug key (`~/.android/debug.keystore`,
+generated per computer) unless you point it at a keystore of your own. `keystore.properties` and every
+`*.jks`/`*.keystore` are gitignored; never commit them.
+
+1. Create a keystore somewhere outside the repository:
+
+   ```bash
+   keytool -genkeypair -v -keystore ~/framerevive-dev.jks -alias framerevive \
+       -keyalg RSA -keysize 2048 -validity 10000
+   ```
+
+2. Copy `keystore.properties.example` to `keystore.properties` at the repository root and fill in `storeFile`
+   (absolute, or relative to the repository root), `storePassword`, `keyAlias` and `keyPassword`.
+3. `./gradlew :app:assembleDebug` and `:app:assembleRelease` now produce APKs signed with that key. Without the
+   file, behaviour is unchanged: debug uses the machine key and release stays unsigned.
+
+Check what an APK carries before installing it:
+
+```bash
+apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+```
+
+Record the fingerprint of the key you lock a device to; every later update must carry it. `keytool -list -v`
+on the keystore prints it.
+
+### Installing a build made elsewhere
+
+A frame locked to your development key cannot install an upstream release directly, because that APK carries
+the publisher's certificate. Re-sign it first; the result is signed by you, not by them:
+
+```bash
+./tools/resign-apk.sh --in FrameRevive-<version>-alpha.apk \
+    --out FrameRevive-<version>-dev.apk --properties keystore.properties
+```
+
+The script strips any old JAR signature, signs with your key, and prints the resulting certificate and package
+lines. Two rules follow from it: never redistribute a re-signed build as though it came from the original
+publisher, and remember the version code still has to be equal to or higher than the installed one, so a
+re-signed older release will be refused.
+
+**Android replaces an installed app only when the new APK has the same certificate and a version code that is
+not lower.** So a first install on a frame accepts any key, but every later update — through the webpage
+updater or `adb install -r` — must be signed by the same key as the installed build. A different key fails with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, or the updater's "Signing key does not match this installation", and the
+only fallback is uninstalling, which removes the album link, controls key, TLS identity, photo cache and
+schedule. Builds from the pull-request workflow carry an ephemeral CI key and are deliberately not publishable
+as updates.
+
 ## Preserve the current signing identity
 
 The published 0.5.24 alpha APK uses the local Android debug signing identity. Its public certificate SHA-256 is:

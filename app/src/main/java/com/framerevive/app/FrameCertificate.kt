@@ -25,12 +25,24 @@ object FrameCertificate {
     private fun seq(vararg values: ByteArray) = der(0x30, values.fold(byteArrayOf()) { a, b -> a + b })
     private fun integer(value: BigInteger) = der(2, value.toByteArray())
     private fun oid(vararg bytes: Int) = der(6, bytes.map { it.toByte() }.toByteArray())
+    /**
+     * RFC 5280 4.1.2.5: Validity uses UTCTime (tag 0x17) for 1950-2049 and GeneralizedTime (tag 0x18) only
+     * outside that range. Emitting GeneralizedTime for a 2036 date makes strict validators reject the whole
+     * certificate ("format error in certificate's notBefore field") even when it is trusted.
+     */
+    fun time(time: Long): ByteArray {
+        val utc = TimeZone.getTimeZone("UTC")
+        val year = SimpleDateFormat("yyyy", Locale.US).apply { timeZone = utc }.format(Date(time)).toInt()
+        val twoDigit = year in 1950..2049
+        val pattern = if (twoDigit) "yyMMddHHmmss'Z'" else "yyyyMMddHHmmss'Z'"
+        return der(if (twoDigit) 0x17 else 0x18, SimpleDateFormat(pattern, Locale.US).apply { timeZone = utc }.format(Date(time)).toByteArray(Charsets.US_ASCII))
+    }
+
     fun create(pair: KeyPair, hostname: String, ip: ByteArray?): X509Certificate {
         require(hostname.matches(Regex("framerevive-[a-f0-9]{8}\\.local")))
         val algorithm = seq(oid(0x2a,0x86,0x48,0x86,0xf7,0x0d,1,1,11), der(5, byteArrayOf()))
         val name = X500Principal("CN=$hostname").encoded
-        val formatter = SimpleDateFormat("yyyyMMddHHmmss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-        fun date(time: Long) = der(0x18, formatter.format(Date(time)).toByteArray(Charsets.US_ASCII))
+        fun date(time: Long) = time(time)
         val now = System.currentTimeMillis()
         val names = listOf(der(0x82, hostname.toByteArray(Charsets.US_ASCII)), der(0x82, "localhost".toByteArray()), der(0x87, byteArrayOf(127,0,0,1))) +
             (if (ip != null && ip.size == 4) listOf(der(0x87, ip)) else emptyList())

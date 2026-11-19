@@ -14,14 +14,15 @@
 - Share one zoom factor across both halves, refuse pairs that would crop more than 30%, and fall back to the
   single photo with the blurred background.
 - Count a pair as one photo for the collage cadence, and keep four photos preloaded while pairing is on.
-- Request a square cache box of the panel's long edge so cropped halves keep full resolution.
+- Request a square box of the panel's long edge so cropped halves keep full resolution.
+- Let a developer sign both build types with their own key through a gitignored `keystore.properties`, and
+  document the update rule that follows from it.
 - Add the Show pairs switch to Everyday and the native settings dialog, plus Debug orientation status.
 - Choose collage photos by shape: a collage now covers the frame with the arrangement that crops each photo
   least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when
   no combination tiles the frame.
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
-- Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
-  between the photos, shared rather than doubled, so pictures never bleed together.
+- Matt every multi-photo slide on white, so gutters and outer margins read as a photo mount.
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.

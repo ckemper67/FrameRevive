@@ -15,7 +15,9 @@ class FrameTls(context: Context, hostname: String, ip: ByteArray?) {
     private val key: PrivateKey
     init {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val alias = "framerevive-management-tls-v2"
+        // v3: the earlier identity used GeneralizedTime for the validity dates, which strict TLS
+        // validators reject. A new alias and file rotate the certificate on upgrade.
+        val alias = "framerevive-management-tls-v3"
         if (!store.containsAlias(alias)) {
             KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore").apply {
                 initialize(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
@@ -28,7 +30,7 @@ class FrameTls(context: Context, hostname: String, ip: ByteArray?) {
             }.generateKeyPair()
         }
         key = store.getKey(alias, null) as PrivateKey
-        val file = File(context.filesDir, "management-cert-v2.der")
+        val file = File(context.filesDir, "management-cert-v3.der")
         certificate = if (file.exists()) java.security.cert.CertificateFactory.getInstance("X.509")
             .generateCertificate(file.inputStream().use { it.readBytes() }.inputStream()) as X509Certificate
         else FrameCertificate.create(KeyPair(store.getCertificate(alias).publicKey, key), hostname, ip).also {

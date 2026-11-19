@@ -48,6 +48,10 @@ Use Android Studio's JDK 21, the Android SDK, and the checked-in Gradle wrapper:
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
+Debug and release APKs use the machine's debug key unless `keystore.properties` points at your own keystore;
+see [signing for development](docs/release-signing.md#using-your-own-key-for-development). An APK can only
+update an install that carries the same certificate and an equal or lower version code.
+
 The tested target is Lenovo Smart Frame CD-3L501F running Android 10. The owner has confirmed playback, additions, buttons, gestures, mixed collages, fades, sleep/wake and reboot recovery. Installation on another owner's untouched frame and long-term reliability still need validation. Google Photos access uses an unofficial web interface and may change.
 
 ## Attribution
