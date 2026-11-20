@@ -1,0 +1,41 @@
+name: Installer tests
+
+on:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - 'tests/installer/**'
+      - '.github/workflows/installer-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - 'tests/installer/**'
+      - '.github/workflows/installer-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Installer tests (${{ matrix.shell }})
+    runs-on: windows-2025
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - name: Check out source without retained credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test installer in Windows PowerShell
+        if: matrix.shell == 'powershell'
+        shell: powershell
+        run: .\tests\installer\Run-InstallerTests.ps1
+      - name: Test installer in PowerShell 7
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: .\tests\installer\Run-InstallerTests.ps1
