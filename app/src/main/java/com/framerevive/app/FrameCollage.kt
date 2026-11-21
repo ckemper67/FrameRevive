@@ -17,7 +17,8 @@ object FrameCollage {
         val w=maxOf(32,(width*scale).toInt());val h=maxOf(32,(height*scale).toInt())
         val output=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
         try {
-            val canvas=Canvas(output);canvas.drawColor(Color.rgb(20,22,25))
+            // Multi-photo slides are matted on white, so the gutters read as a photo mount rather than a dark seam.
+            val canvas=Canvas(output);canvas.drawColor(Color.WHITE)
             val paint=Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
             val label=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE;textSize=maxOf(12f,18f*scale);setShadowLayer(3f,1f,1f,Color.BLACK) }
             fun rect(box:CollageLayout.Box)=RectF(box.left,box.top,box.right,box.bottom)

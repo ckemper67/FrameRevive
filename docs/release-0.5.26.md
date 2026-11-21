@@ -12,7 +12,7 @@
   orientation, whether the current slide is a pair, and the crop limit.
 - Collages now choose photos by shape too: the arrangement that crops each photo least covers the frame, a
   count that cannot fit drops to the next smaller one, and only combinations that tile nothing keep the
-  letterboxed layout. Each cell is decoded at the size it needs.
+  letterboxed layout. Each cell is decoded at the size it needs, and multi-photo slides carry a white 28 px passe-partout (about 7 mm) around and between the photos.
 - Each collage draws at random either from your newest photos or from one capture date, favouring dates that
   are already cached, and falls back to the other source when nothing is ready. No new setting.
 - Collages leave out noticeably soft photos: one grey-scale pass per photo yields a normalised focus measure

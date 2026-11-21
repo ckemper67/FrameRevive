@@ -22,18 +22,6 @@
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 - Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
   between the photos, shared rather than doubled, so pictures never bleed together.
-- Choose where capture dates go: inside each picture (default) or as one line under a group, the way
-  Google's frame shows a group. A same-day group then reads as a single date.
-- Play the whole album as a deck: photos never shown come first, then the ones shown longest ago, so
-  nothing repeats within a cycle and nothing is left unseen. Coverage is reported on the controls page.
-- Collages draw from one capture date by default; the controls page offers a Mixed option for an occasional
-  collage from the newest photos. A date offers up to twelve candidates so the layout can choose shapes that
-  compose instead of forcing whatever four photos it had, and Preview runs the same selection as playback.
-- Update the frame from the controls page without touching it: an accessibility service confirms Android's
-  installation prompt for FrameRevive only, so uploads install hands-off over WiFi and survive reboots.
-- Label every picture of a pair or collage with its own capture date, inset inside the photo rather than in the
-  passe-partout, and skip undated album entries instead of showing January 1970.
-- Try a device-owner silent install when one is available and fall back to the prompt when Android hides it.
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
