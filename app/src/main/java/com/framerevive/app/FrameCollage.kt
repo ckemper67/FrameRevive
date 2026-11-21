@@ -20,7 +20,9 @@ object FrameCollage {
             // Multi-photo slides are matted on white, so the gutters read as a photo mount rather than a dark seam.
             val canvas=Canvas(output);canvas.drawColor(Color.WHITE)
             val paint=Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-            val label=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE;textSize=maxOf(12f,18f*scale);setShadowLayer(3f,1f,1f,Color.BLACK) }
+            // Each picture carries its own date, inset from the cell edge so it never lands in the passe-partout.
+            val label=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE;textSize=maxOf(14f,20f*scale);setShadowLayer(3f,1f,1f,Color.BLACK) }
+            val inset=24f*maxOf(scale,0.75f)
             fun rect(box:CollageLayout.Box)=RectF(box.left,box.top,box.right,box.bottom)
             val sizes=photos.map(size)
             val filled=if(fill) CollageLayout.fill(w,h,sizes) else null
@@ -37,7 +39,8 @@ object FrameCollage {
                         finally { background.recycle() }
                     }
                     canvas.drawBitmap(bitmap,null,rect(CollageLayout.fit(bitmap.width,bitmap.height,cell,cover)),paint)
-                    if(date) canvas.drawText(photos[i].date().format(DateTimeFormatter.ofPattern("MMM d, yyyy")),cell.left+12,cell.bottom-12,label)
+                    if(date && photos[i].dated)
+                        canvas.drawText(photos[i].date().format(DateTimeFormatter.ofPattern("MMM d, yyyy")),cell.left+inset,cell.bottom-inset,label)
                     canvas.restoreToCount(save)
                 } finally { bitmap.recycle() }
             }

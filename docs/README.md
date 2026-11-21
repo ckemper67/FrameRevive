@@ -7,6 +7,7 @@ The native Android app on `main` is maintained.
 - [Web controls](web-controls.md)
 - [Preloading, photo mix and collages](preloading-mix-collages.md)
 - [Show pairs](show-pair.md)
+- [Updating the frame over the network](wireless-updates.md)
 - [Front buttons and pause](front-buttons.md)
 - [Hand gestures](gestures.md)
 - [HTTPS pairing](security-pairing.md)

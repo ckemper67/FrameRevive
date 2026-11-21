@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">FrameRevive</string>
+    <string name="frame_install_clicker_description">Confirms Android\'s installation prompt when you start an update from the frame controls, so the frame needs no mouse.</string>
 </resources>

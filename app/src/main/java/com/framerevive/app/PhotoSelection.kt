@@ -9,6 +9,8 @@ import kotlin.random.Random
 
 data class FramePhoto(val id: String, val url: String, val takenMs: Long, val offsetMs: Long = 0, val discoveredMs: Long = 0) {
     fun date(): LocalDate = Instant.ofEpochMilli(takenMs + offsetMs).atZone(ZoneOffset.UTC).toLocalDate()
+    /** Album entries do not always carry a capture timestamp; a zero would render as January 1970. */
+    val dated: Boolean get() = takenMs > 0
 }
 
 object PhotoSelection {

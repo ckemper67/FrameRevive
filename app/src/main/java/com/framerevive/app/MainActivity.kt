@@ -494,16 +494,12 @@ class MainActivity : Activity() {
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
-        if(!fromHistory) {
-            collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown()
-            // Record what was on the panel so the deck can prefer what has not been seen.
-            PhotoDeck.recorded(playHistory, slide.photos.map { it.id }, System.currentTimeMillis())
-            if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
-        }
+        if(!fromHistory) { collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown() }
         // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,
         // so no text ever lands in the paddings. Undated album entries get no label rather than January 1970.
         val first=slide.photos.first()
-        refreshCaption(slide)
+        caption.text=if(slide.mode == SlideMode.SINGLE && first.dated) first.date().format(DateTimeFormatter.ofPattern("MMMM d, yyyy")) else ""
+        caption.visibility=if(caption.text.isNotEmpty() && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
         if(priorityIds.removeAll(slide.photos.map { it.id }.toSet())) prefs.edit().putStringSet("priorityIds",priorityIds.toSet()).apply()
     }
     private fun trimCache() = synchronized(cacheLock) {
@@ -590,8 +586,7 @@ class MainActivity : Activity() {
                     val d=resources.displayMetrics
                     // Multi-photo slides cover the frame with the least cropping the photos allow.
                     FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
-                        prefs.getBoolean("date",true) && prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_ON_PICTURE,
-                        ::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
+                        prefs.getBoolean("date",true),::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
@@ -781,6 +776,7 @@ class MainActivity : Activity() {
             if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions")) flags += name
         }
         if (FramePower.hasScreenControl(this)) flags += "hardwareSleep"
+        if (updater.isDeviceOwner()) flags += "deviceOwner"
         val text = mapOf(
             "holidayTheme" to prefs.getString("holidayTheme", "off").orEmpty(),
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
@@ -797,6 +793,8 @@ class MainActivity : Activity() {
                     lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo")),
             "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
                 else "On · frame ${if(frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"} · ${if(lastSlide?.pair == true) "pair on screen" else "single photo"} · up to ${(PairSelection.MAX_CROP*100).toInt()}% crop per photo"),
+            "ownerSummary" to (if (updater.isDeviceOwner()) "FrameRevive runs this frame as device owner: updates install without Android's prompt." else "Not device owner: Android asks on the frame before each installation."),
+            "updateResult" to (prefs.getString("updateResult", null) ?: "No silent update attempted yet."),
             "preloadSummary" to preloadSummary, "preloadDetails" to preloadDetails,
             "frameTime" to java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.MEDIUM).format(java.util.Date()),
             "frameTimeZone" to (java.util.TimeZone.getDefault().id + " (" + java.time.ZonedDateTime.now().offset.toString() + ")"),
@@ -848,6 +846,16 @@ class MainActivity : Activity() {
                 "allowInstalls" -> { handler.post { try { updater.allowInstalls() } catch (_: Exception) { updater.reportFailure() } }; "Opening Android's install permission setting on the frame. Approve there, then return to FrameRevive." }
                 "installApk" -> { handler.post { try { updater.install() } catch (e: Exception) { updater.reportFailure(e) } }; "Request sent. Check Update status and confirm Android's prompt on the frame." }
                 "discardApk" -> updater.discard()
+                "releaseOwner" -> {
+                    handler.post {
+                        try {
+                            val dpm = getSystemService(android.app.admin.DevicePolicyManager::class.java)
+                            require(dpm.isDeviceOwnerApp(packageName)) { "This frame is not run by FrameRevive as device owner." }
+                            dpm.clearDeviceOwnerApp(packageName)
+                        } catch (e: Exception) { updater.reportFailure(e) }
+                    }
+                    "Device owner released. Android asks for confirmation again on the next update."
+                }
                 "sharedAlbum" -> {
                     val link = fields["sharedLink"]?.trim().orEmpty()
                     require(link.length in 1..2048)

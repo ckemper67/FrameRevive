@@ -77,17 +77,49 @@ class FrameUpdater(private val activity: Activity) {
         status = "On the frame, allow FrameRevive to request app installs, then return here. Android will still ask before each installation."
     }
 
+    /** A device owner may install without Android's confirmation dialog, so updates need no pointer on the frame. */
+    fun isDeviceOwner(): Boolean = activity.getSystemService(android.app.admin.DevicePolicyManager::class.java)
+        ?.isDeviceOwnerApp(activity.packageName) == true
+
     @Synchronized fun install() {
         check(!installing) { "An installation is already awaiting confirmation on the frame." }
         check(staged.exists()) { "Upload and verify an APK first." }
-        check(activity.packageManager.canRequestPackageInstalls()) { "First use Allow installs on frame and approve that setting on the frame." }
         val version = checkArchive(staged)
+        // Try the device-owner route first; Android 10 hides the API it needs, so fall back to the prompt
+        // (which FrameInstallClicker confirms when the owner enables it) rather than failing outright.
+        if (isDeviceOwner() && silentInstall(version)) return
+        check(activity.packageManager.canRequestPackageInstalls()) { "First use Allow installs on frame and approve that setting on the frame." }
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.updates", staged)
         val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).putExtra(Intent.EXTRA_RETURN_RESULT, true)
         activity.startActivityForResult(intent, INSTALL_REQUEST)
         installing = true
         status = "Android is asking to install FrameRevive $version on the frame. Confirm or cancel there. The webpage may briefly disconnect during installation."
+    }
+
+    private fun silentInstall(version: String): Boolean {
+        val installer = activity.packageManager.packageInstaller
+        val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        // Device owners install silently. Android 12 exposed an int API; older releases only have the hidden
+        // boolean method, so try both and fall back to the normal prompt if neither works.
+        val applied = runCatching {
+            params.javaClass.getMethod("setRequireUserAction", Boolean::class.javaPrimitiveType).invoke(params, false)
+        }.isSuccess || runCatching {
+            params.javaClass.getMethod("setRequireUserAction", Int::class.javaPrimitiveType).invoke(params, 1)
+        }.isSuccess
+        if (!applied) return false
+        val sessionId = installer.createSession(params)
+        installer.openSession(sessionId).use { session ->
+            activity.contentResolver.openInputStream(Uri.fromFile(staged))?.use { input ->
+                session.openWrite("FrameRevive.apk", 0, staged.length()).use { output -> input.copyTo(output); session.fsync(output) }
+            } ?: error("Staged APK could not be opened.")
+            val callback = android.app.PendingIntent.getBroadcast(activity, sessionId,
+                Intent(activity, FrameUpdateReceiver::class.java), android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+            session.commit(callback.intentSender)
+        }
+        installing = false
+        status = "Installing FrameRevive $version in the background (device owner, no prompt)."
+        return true
     }
 
     @Synchronized fun finished(result: Int) {
