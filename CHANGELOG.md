@@ -22,8 +22,8 @@
   least, drops to a smaller count when the wanted one cannot fit, and keeps the letterboxed layout only when
   no combination tiles the frame.
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
-- Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
-  between the photos, shared rather than doubled, so pictures never bleed together.
+- Give every multi-photo slide a white passe-partout: a 28 px (about 7 mm) mount between the photos, shared
+  rather than doubled, so pictures never bleed together. The outer photos run to the screen edge with no border.
 - Group photos into events by capture time and admit only three frames of a burst into a cycle, so one
   afternoon cannot fill the queue. Held-back frames return in later cycles.
 - Skip near-identical frames: a 64-bit difference hash labels bursts of the same moment, a cycle keeps

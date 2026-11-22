@@ -38,19 +38,21 @@ object CollageLayout {
     /** Most of a photo a paired or collaged cell may lose to centre cropping. */
     const val MAX_CROP = 0.30f
     /**
-     * White passe-partout for multi-photo slides: the same width around the slide and between the photos, so
-     * two neighbouring pictures show one mount, not two. One pixel is about 0.25 mm on this 21.5-inch panel,
-     * so 28 is roughly a 7 mm mount.
+     * White passe-partout between the photos of a multi-photo slide, shared rather than doubled, so two
+     * neighbouring pictures show one mount, not two. One pixel is about 0.25 mm on this 21.5-inch panel, so 28
+     * is roughly a 7 mm mount.
      */
     const val MAT = 28
+    /** Margin between the outermost photos and the edge of the screen: none, the photos run to the edge. */
+    const val EDGE = 0
     data class Box(val left: Float,val top: Float,val right: Float,val bottom: Float) {
         val width get()=right-left
         val height get()=bottom-top
     }
-    fun cells(width: Int,height: Int,gap: Int=MAT): List<Box> {
-        require(width > gap*3 && height > gap*3 && gap >= 0)
-        val w=(width-gap*3)/2f; val h=(height-gap*3)/2f
-        return (0..3).map { i -> val x=gap+(i%2)*(w+gap);val y=gap+(i/2)*(h+gap);Box(x,y,x+w,y+h) }
+    fun cells(width: Int,height: Int,gap: Int=MAT,edge: Int=EDGE): List<Box> {
+        require(width > gap*3 && height > gap*3 && gap >= 0 && edge >= 0)
+        val w=(width-gap-edge*2)/2f; val h=(height-gap-edge*2)/2f
+        return (0..3).map { i -> val x=edge+(i%2)*(w+gap);val y=edge+(i/2)*(h+gap);Box(x,y,x+w,y+h) }
     }
     data class Size(val width:Int,val height:Int) { init { require(width>0 && height>0) } }
     data class Panel(val photo:Int,val box:Box)
@@ -58,24 +60,25 @@ object CollageLayout {
     private fun permutations(indices:List<Int>):List<List<Int>> =
         if(indices.isEmpty()) listOf(emptyList()) else indices.flatMap { i -> permutations(indices-i).map { listOf(i)+it } }
 
-    private fun stripes(width:Int,height:Int,columns:Int,rows:Int,gap:Int):List<Box> {
-        val w=(width-gap*(columns+1)).toFloat()/columns;val h=(height-gap*(rows+1)).toFloat()/rows
-        return (0 until columns*rows).map { i -> val x=gap+(i%columns)*(w+gap);val y=gap+(i/columns)*(h+gap);Box(x,y,x+w,y+h) }
+    private fun stripes(width:Int,height:Int,columns:Int,rows:Int,gap:Int,edge:Int):List<Box> {
+        val w=(width-gap*(columns-1)-edge*2).toFloat()/columns;val h=(height-gap*(rows-1)-edge*2).toFloat()/rows
+        return (0 until columns*rows).map { i -> val x=edge+(i%columns)*(w+gap);val y=edge+(i/columns)*(h+gap);Box(x,y,x+w,y+h) }
     }
 
     /** Every arrangement we will try for [count] photos: columns, rows, a grid, and single-plus-two shapes. */
-    fun templates(width:Int,height:Int,count:Int,gap:Int=MAT):List<List<Box>> {
-        require(count in 2..4 && gap>=0 && width>gap*5 && height>gap*5)
+    fun templates(width:Int,height:Int,count:Int,gap:Int=MAT,edge:Int=EDGE):List<List<Box>> {
+        require(count in 2..4 && gap>=0 && edge>=0 && width>gap*5+edge*2 && height>gap*5+edge*2)
         val templates=ArrayList<List<Box>>()
-        templates+=stripes(width,height,count,1,gap);templates+=stripes(width,height,1,count,gap)
-        if(count==4) templates+=cells(width,height,gap)
+        templates+=stripes(width,height,count,1,gap,edge);templates+=stripes(width,height,1,count,gap,edge)
+        if(count==4) templates+=cells(width,height,gap,edge)
         if(count==3) {
+            val e=edge.toFloat()
             val midX=(width-gap)/2f
             val midY=(height-gap)/2f
-            val left=Box(gap.toFloat(),gap.toFloat(),midX,height-gap.toFloat())
-            val right=Box(midX+gap,gap.toFloat(),width-gap.toFloat(),height-gap.toFloat())
-            val top=Box(gap.toFloat(),gap.toFloat(),width-gap.toFloat(),midY)
-            val bottom=Box(gap.toFloat(),midY+gap,width-gap.toFloat(),height-gap.toFloat())
+            val left=Box(e,e,midX,height-e)
+            val right=Box(midX+gap,e,width-e,height-e)
+            val top=Box(e,e,width-e,midY)
+            val bottom=Box(e,midY+gap,width-e,height-e)
             templates+=listOf(left,Box(right.left,right.top,right.right,midY),Box(right.left,midY+gap,right.right,right.bottom))
             templates+=listOf(right,Box(left.left,left.top,left.right,midY),Box(left.left,midY+gap,left.right,left.bottom))
             templates+=listOf(top,Box(bottom.left,bottom.top,midX,bottom.bottom),Box(midX+gap,bottom.top,bottom.right,bottom.bottom))
@@ -141,24 +144,25 @@ object CollageLayout {
         val crop: Float get() = if (zoom >= 1f) 1f - 1f / zoom else 1f - zoom
     }
 
-    fun pair(width: Int, height: Int, first: Size, second: Size, portrait: Boolean, gap: Int = MAT): PairLayout {
-        require(width > gap * 3 && height > gap * 3 && gap >= 0)
+    fun pair(width: Int, height: Int, first: Size, second: Size, portrait: Boolean, gap: Int = MAT, edge: Int = EDGE): PairLayout {
+        require(width > gap * 3 && height > gap * 3 && gap >= 0 && edge >= 0)
+        val e = edge.toFloat()
         if (portrait) {
-            val cell = (width - gap * 2).toFloat()
+            val cell = (width - edge * 2).toFloat()
             val firstNatural = cell * first.height / first.width
             val secondNatural = cell * second.height / second.width
-            val zoom = (height - gap * 3).toFloat() / (firstNatural + secondNatural)
-            val top = gap + firstNatural * zoom
-            return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), width - gap.toFloat(), top),
-                Box(gap.toFloat(), top + gap, width - gap.toFloat(), top + gap + secondNatural * zoom)), zoom)
+            val zoom = (height - gap - edge * 2).toFloat() / (firstNatural + secondNatural)
+            val top = e + firstNatural * zoom
+            return PairLayout(listOf(Box(e, e, width - e, top),
+                Box(e, top + gap, width - e, top + gap + secondNatural * zoom)), zoom)
         }
-        val cell = (height - gap * 2).toFloat()
+        val cell = (height - edge * 2).toFloat()
         val firstNatural = cell * first.width / first.height
         val secondNatural = cell * second.width / second.height
-        val zoom = (width - gap * 3).toFloat() / (firstNatural + secondNatural)
-        val left = gap + firstNatural * zoom
-        return PairLayout(listOf(Box(gap.toFloat(), gap.toFloat(), left, height - gap.toFloat()),
-            Box(left + gap, gap.toFloat(), left + gap + secondNatural * zoom, height - gap.toFloat())), zoom)
+        val zoom = (width - gap - edge * 2).toFloat() / (firstNatural + secondNatural)
+        val left = e + firstNatural * zoom
+        return PairLayout(listOf(Box(e, e, left, height - e),
+            Box(left + gap, e, left + gap + secondNatural * zoom, height - e)), zoom)
     }
 
     fun fit(width: Int,height: Int,cell: Box,fill: Boolean=false): Box {

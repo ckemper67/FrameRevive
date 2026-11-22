@@ -86,4 +86,21 @@ class CollageTest {
             }
         }
     }
+
+    @Test fun everyTemplateRunsToTheScreenEdgeAndKeepsOneMatBetweenPhotos() {
+        for(count in 2..4) for(template in CollageLayout.templates(1920,1080,count)) {
+            assertEquals("count $count left",CollageLayout.EDGE.toFloat(),template.minOf { it.left },0.01f)
+            assertEquals("count $count top",CollageLayout.EDGE.toFloat(),template.minOf { it.top },0.01f)
+            assertEquals("count $count right",1920f-CollageLayout.EDGE,template.maxOf { it.right },0.01f)
+            assertEquals("count $count bottom",1080f-CollageLayout.EDGE,template.maxOf { it.bottom },0.01f)
+            // A box's nearest neighbour to its right, and the nearest below it, is exactly one mat away.
+            for(a in template) {
+                val right=template.filter { b -> b !== a && a.top < b.bottom && b.top < a.bottom && a.right <= b.left }.minOfOrNull { it.left-a.right }
+                val below=template.filter { b -> b !== a && a.left < b.right && b.left < a.right && a.bottom <= b.top }.minOfOrNull { it.top-a.bottom }
+                if(right != null) assertEquals("count $count neighbours",CollageLayout.MAT.toFloat(),right,0.01f)
+                if(below != null) assertEquals("count $count stacked",CollageLayout.MAT.toFloat(),below,0.01f)
+            }
+        }
+    }
+    @Test fun theOuterMarginIsNone() { assertEquals(0,CollageLayout.EDGE) }
 }

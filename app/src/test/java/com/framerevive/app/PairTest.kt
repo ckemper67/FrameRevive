@@ -13,27 +13,27 @@ class PairTest {
     @Test fun portraitFrameStacksTwoLandscapesAndFillsTheScreen() {
         val layout=CollageLayout.pair(1080,1920,landscape,landscape,portrait=true)
         val boxes=layout.boxes
-        assertEquals(CollageLayout.MAT.toFloat(),boxes[0].left,0.01f)
-        assertEquals(1080f-CollageLayout.MAT,boxes[0].right,0.01f)
+        assertEquals(CollageLayout.EDGE.toFloat(),boxes[0].left,0.01f)
+        assertEquals(1080f-CollageLayout.EDGE,boxes[0].right,0.01f)
         assertEquals(boxes[0].left,boxes[1].left,0.01f)
         assertTrue(boxes[0].bottom<boxes[1].top)
-        assertEquals(1920f,boxes[0].height+boxes[1].height+3*CollageLayout.MAT.toFloat(),0.05f)
-        assertTrue(boxes[1].bottom<=1920f)
-        // The mount is uniform: one mat width between the photos and at the edges, never two.
+        assertEquals(1920f,boxes[0].height+boxes[1].height+CollageLayout.MAT+2f*CollageLayout.EDGE,0.05f)
+        assertEquals(1920f-CollageLayout.EDGE,boxes[1].bottom,0.05f)
+        // The mount sits between the photos only: one mat width there, nothing at the screen edge.
         assertEquals(boxes[1].top-boxes[0].bottom,CollageLayout.MAT.toFloat(),0.01f)
         assertEquals(1f-1f/layout.zoom,layout.crop,0.0001f)
-        assertTrue(layout.crop in 0.24f..0.29f)
+        assertTrue(layout.crop in 0.23f..0.25f)
     }
     @Test fun landscapeFrameSplitsTwoPortraitsSideBySide() {
         val layout=CollageLayout.pair(1920,1080,portrait,portrait,portrait=false)
         val boxes=layout.boxes
         assertEquals(boxes[0].top,boxes[1].top,0.01f)
         assertTrue(boxes[0].right<boxes[1].left)
-        assertEquals(1920f,boxes[0].width+boxes[1].width+3*CollageLayout.MAT.toFloat(),0.05f)
-        assertTrue(boxes[1].right<=1920f)
+        assertEquals(1920f,boxes[0].width+boxes[1].width+CollageLayout.MAT+2f*CollageLayout.EDGE,0.05f)
+        assertEquals(1920f-CollageLayout.EDGE,boxes[1].right,0.05f)
         assertEquals(boxes[1].left-boxes[0].right,CollageLayout.MAT.toFloat(),0.01f)
         assertEquals(1f-1f/layout.zoom,layout.crop,0.0001f)
-        assertTrue(layout.crop in 0.24f..0.29f)
+        assertTrue(layout.crop in 0.23f..0.25f)
     }
     @Test fun mixedAspectsShareOneCropAndOneZoom() {
         val layout=CollageLayout.pair(1080,1920,fourByThree,wide,portrait=true)
@@ -47,14 +47,14 @@ class PairTest {
         val looser=CollageLayout.pair(1080,1920,landscape,landscape,portrait=true).crop
         val worst=CollageLayout.pair(1080,1920,wide,wide,portrait=true).crop
         assertTrue(tight<looser);assertTrue(looser<worst)
-        assertTrue(tight in 0.15f..0.18f);assertTrue(worst in 0.35f..0.40f)
+        assertTrue(tight in 0.13f..0.16f);assertTrue(worst in 0.35f..0.40f)
     }
     @Test fun nearlySquarePairsCropHeightInstead() {
         val square=CollageLayout.Size(1000,1050)
         val layout=CollageLayout.pair(1080,1920,square,square,portrait=true)
         assertTrue(layout.zoom<1f)
         assertTrue(layout.crop in 0f..PairSelection.MAX_CROP)
-        assertEquals(1920f-3*CollageLayout.MAT,layout.boxes[0].height+layout.boxes[1].height,0.05f)
+        assertEquals(1920f-CollageLayout.MAT-2*CollageLayout.EDGE,layout.boxes[0].height+layout.boxes[1].height,0.05f)
     }
     @Test fun orientationAndPairabilityFollowTheFrame() {
         assertEquals(FrameOrientation.PORTRAIT,PairSelection.orientation(1080,1920))
