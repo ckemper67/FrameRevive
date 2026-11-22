@@ -58,6 +58,11 @@ class MainActivity : Activity() {
     private var recentIds: Set<String> = emptySet()
     private val placeholder by lazy { android.graphics.Bitmap.createBitmap(8,8,android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF20242B.toInt()) } }
     private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
+    /** Consecutive download failures and the time each photo may be tried again, with jittered backoff. */
+    private val fetchAttempts = java.util.concurrent.ConcurrentHashMap<String,Int>()
+    private val fetchRetryAt = java.util.concurrent.ConcurrentHashMap<String,Long>()
+    private val syncRetry = Runnable { if(!closed) sync() }
+    private var syncAttempts = 0
     /** Photo ids with a cache file. Maintained as files are written, so planning never stats thousands of paths. */
     private val cachedIds: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
     /** Photos shown and when; the album is played as a deck so coverage does not depend on luck. */
@@ -424,17 +429,30 @@ class MainActivity : Activity() {
     private fun ensureCached(p:FramePhoto,current:()->Boolean = { true }) {
         val file=cached(p)
         if(synchronized(cacheLock) { file.exists() } || !current()) return
+        // A photo that failed to download is not retried until its backoff has passed, so a network that is
+        // down does not get hammered once per slide.
+        val now=System.currentTimeMillis()
+        if(now < (fetchRetryAt[p.id] ?: 0L)) return
         val d=resources.displayMetrics
         val reader=client
-        val bytes=reader.request(p.url + FrameCache.suffix(d.widthPixels, d.heightPixels),image=true)
-        val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
-        BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
-        check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
-        if(!current()) return
-        synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
-        cachedIds.add(p.id)
-        prefs.edit().putStringSet("cachedIds",cachedIds.toSet()).apply()
-        runCatching { ensureScored(p) }
+        try {
+            val bytes=reader.request(p.url + FrameCache.suffix(d.widthPixels, d.heightPixels),image=true)
+            val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
+            BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
+            check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
+            if(!current()) return
+            synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
+            cachedIds.add(p.id)
+            prefs.edit().putStringSet("cachedIds",cachedIds.toSet()).apply()
+            fetchAttempts.remove(p.id); fetchRetryAt.remove(p.id)
+            runCatching { ensureScored(p) }
+        } catch (e: Exception) {
+            val attempt=(fetchAttempts[p.id] ?: 0)+1
+            fetchAttempts[p.id]=attempt
+            fetchRetryAt[p.id]=System.currentTimeMillis()+Backoff.delayMs(attempt)
+            prefs.edit().putString("lastPhotoError",safeMessage(e)).putLong("lastPhotoErrorAt",System.currentTimeMillis()).apply()
+            throw e
+        }
     }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
@@ -706,7 +724,9 @@ class MainActivity : Activity() {
                 fresh.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs).put("discoveredMs",p.discoveredMs)) }
                 saveCatalog(JSONObject().put("albumId", targetId).put("title", actualTitle).put("sharedLink", targetShared).put("photos", rows).put("syncedAt", System.currentTimeMillis()))
                 prefs.edit().putLong("lastSuccessfulSync", System.currentTimeMillis()).putInt("fullAlbumCount", shared?.itemCount ?: fresh.size)
-                    .remove("lastSyncError").remove("lastCountError").apply()
+                    .remove("lastSyncError").remove("lastCountError").remove("nextSyncAttemptAt").apply()
+                syncAttempts = 0
+                handler.removeCallbacks(syncRetry)
                 val valid = fresh.map { cached(it).name }.toHashSet()
                 File(filesDir, "photo-cache").listFiles()?.filter { it.extension == "jpg" && it.name !in valid }?.forEach { it.delete() }
                 handler.post {
@@ -731,6 +751,15 @@ class MainActivity : Activity() {
                     }
                 }
             } catch (e: Exception) {
+                // Space attempts out and scatter them: two frames failing together must not retry in lockstep,
+                // and an outage should not mean one request per hour with no progress in between.
+                if(Backoff.retryable(e)) {
+                    syncAttempts += 1
+                    val wait = Backoff.delayMs(syncAttempts)
+                    prefs.edit().putLong("nextSyncAttemptAt", System.currentTimeMillis() + wait).apply()
+                    handler.removeCallbacks(syncRetry)
+                    handler.postDelayed(syncRetry, wait)
+                }
                 prefs.edit().putString("lastSyncError", safeMessage(e)).putLong("lastSyncErrorAt", System.currentTimeMillis()).apply()
                 setupMessage = "Could not update album: ${safeMessage(e)}. Your previous album remains selected."
                 handler.post { if (!closed) status.text = "$title\n${safeMessage(e)}\nKeeping the last complete photo index." }
@@ -885,7 +914,8 @@ class MainActivity : Activity() {
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
                 "Last refresh: ${time("lastSuccessfulSync")}", "Last attempt: ${time("lastSyncAttempt")}",
-                "Last count check: ${time("lastCountCheck")}", "Refreshing: ${syncing.get()}",
+                "Last count check: ${time("lastCountCheck")}",
+                "Next album attempt: ${if (prefs.contains("nextSyncAttemptAt")) time("nextSyncAttemptAt") else "on the hourly schedule"} (${syncAttempts} consecutive failures)", "Refreshing: ${syncing.get()}",
                 "Refresh error: ${FrameDiagnostics.errorSummary(prefs.getString("lastSyncError",null))}",
                 "Count error: ${FrameDiagnostics.errorSummary(prefs.getString("lastCountError",null))}",
                 "Last photo error: ${FrameDiagnostics.errorSummary(prefs.getString("lastPhotoError",null))}",

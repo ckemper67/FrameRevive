@@ -24,6 +24,10 @@
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 - Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
   between the photos, shared rather than doubled, so pictures never bleed together.
+- Retry failed downloads and album syncs with exponential backoff and jitter, from 2 seconds to a
+  fifteen-minute cap, instead of retrying per slide or waiting for the hourly timer.
+- Choose where capture dates go: inside each picture (default) or as one line under a group, the way
+  Google's frame shows a group. A same-day group then reads as a single date.
 - Play the whole album as a deck: photos never shown come first, then the ones shown longest ago, so
   nothing repeats within a cycle and nothing is left unseen. Coverage is reported on the controls page.
 - Collages draw from one capture date by default; the controls page offers a Mixed option for an occasional
