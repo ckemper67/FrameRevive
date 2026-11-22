@@ -59,6 +59,8 @@
 - The dates under a group of pictures follow the pictures: read along each row in the direction of the frame's language
   (left to right, or right to left for Arabic and Hebrew) and top to bottom, each distinct date once, instead of being
   sorted by date.
+- Dates on the screen follow the frame's language ("March 4, 2021" in English, 2021-03-04 style written the local way in
+  Japanese, French and so on) instead of a fixed English pattern, both under a group and on each picture of a collage.
 - Remove the Photos per round setting. The frame plans about one awake day at a time: the photos it shows in a day at
   its pace, with a margin for skipped near-identical frames, kept between 300 and 2,000. The plan is rebuilt when the
   date changes, when it runs out, and when the seconds per photo or the sleep schedule are changed, so it follows the

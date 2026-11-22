@@ -1,6 +1,7 @@
 package com.framerevive.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameCaptionTest {
@@ -31,5 +32,22 @@ class FrameCaptionTest {
 
     @Test fun noDotSeparatorRemains() {
         assertEquals(false, FrameCaption.groupedDates(listOf(photo("a", 20_400), photo("b", 20_401))).contains("·"))
+    }
+
+    @Test fun datesAreWrittenTheWayTheFramesLanguageWritesThem() {
+        val day = java.time.LocalDate.of(2021, 3, 4)
+        assertEquals("March 4, 2021", day.format(FrameCaption.dateFormat(java.util.Locale.US, java.time.format.FormatStyle.LONG)))
+        assertEquals("2021\u5e743\u67084\u65e5", day.format(FrameCaption.dateFormat(java.util.Locale.JAPAN, java.time.format.FormatStyle.LONG)))
+        assertEquals("4 mars 2021", day.format(FrameCaption.dateFormat(java.util.Locale.FRANCE, java.time.format.FormatStyle.LONG)))
+    }
+
+    @Test fun theDefaultLocaleDecidesTheCaption() {
+        val saved = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.JAPAN)
+            assertTrue(FrameCaption.groupedDates(listOf(photo("a", 20_000))).contains("\u5e74"))
+            java.util.Locale.setDefault(java.util.Locale.US)
+            assertTrue(FrameCaption.groupedDates(listOf(photo("a", 20_000))).matches(Regex("[A-Z][a-z]+ \\d+, \\d{4}")))
+        } finally { java.util.Locale.setDefault(saved) }
     }
 }

@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import java.time.format.DateTimeFormatter
 
 object FrameCollage {
     /** One image decoded at a time on the image worker; output capped at 1920 pixels.
@@ -40,7 +39,7 @@ object FrameCollage {
                     }
                     canvas.drawBitmap(bitmap,null,rect(CollageLayout.fit(bitmap.width,bitmap.height,cell,cover)),paint)
                     if(date && photos[i].dated)
-                        canvas.drawText(photos[i].date().format(DateTimeFormatter.ofPattern("MMM d, yyyy")),cell.left+inset,cell.bottom-inset,label)
+                        canvas.drawText(photos[i].date().format(FrameCaption.SHORT_DATE),cell.left+inset,cell.bottom-inset,label)
                     canvas.restoreToCount(save)
                 } finally { bitmap.recycle() }
             }
