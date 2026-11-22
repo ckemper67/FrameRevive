@@ -11,8 +11,8 @@ import org.junit.Test
  * browser on the dev machine without touching the frame. The page lands next to the CSV (local/controls-preview.html,
  * which git ignores). Skips itself when there is no CSV. See docs/tuning-the-strategy.md.
  *
- * FRAMEREVIVE_PREVIEW_ROUNDS sets how many rounds of play the history holds (default 20, about six days of display);
- * 0 shows a frame that has shown nothing yet.
+ * FRAMEREVIVE_PREVIEW_ROUNDS sets how many rounds of play the history holds (default 20); 0 shows a frame that has shown
+ * nothing yet. FRAMEREVIVE_SECONDS and FRAMEREVIVE_AWAKE_HOURS set the frame's pace (see AlbumFixture).
  */
 class AlbumCardPreview {
     @Test fun writesTheControlsPageForTheRealAlbum() {
@@ -27,14 +27,15 @@ class AlbumCardPreview {
         val seasonal = PhotoSelection.seasonal(photos, today, cycle.memoryDays)
         val history = HashMap<String, PlayRecord>()
         val random = Random(7)
-        // Play the rounds with the real pipeline, 30 seconds apart, ending now.
+        // Play the rounds with the real pipeline at the frame's pace, ending now.
         val plays = ArrayList<FramePhoto>()
         repeat(rounds) {
             val round = PlaybackEngine.buildCycle(photos, today, cycle, history, byRecency, seasonal, emptyMap(), { null }, emptySet(), random).playlist
             for (p in round) { history[p.id] = PlayRecord(0L, 1); plays += p }
         }
-        plays.forEachIndexed { i, p -> history[p.id] = PlayRecord(nowMs - (plays.size - i) * 30_000L, 1) }
-        val settings = AlbumStats.Settings(cycle.roundSize, cycle.recentPercent, cycle.memoryDays, 30, 15.0)
+        val gapMs = (86_400_000L / AlbumFixture.slotsPerDay()).toLong()
+        plays.forEachIndexed { i, p -> history[p.id] = PlayRecord(nowMs - (plays.size - i) * gapMs, 1) }
+        val settings = AlbumStats.Settings(cycle.roundSize, cycle.recentPercent, cycle.memoryDays, AlbumFixture.secondsPerPhoto(), AlbumFixture.awakeHours())
         val card = AlbumCard.html(AlbumStats.compute(photos, today, history, nowMs, settings, seasonal))
         val page = FrameWeb.render(FrameWeb.State(
             mapOf("roundSize" to "${cycle.roundSize}", "memoryDays" to "${cycle.memoryDays}", "recentPercent" to "${cycle.recentPercent}",

@@ -48,7 +48,11 @@ access key, and error messages have both removed.
      photos they hold, which the first line reports);
    - **slots from the last 6 months**: how often recent photos come up.
 
-   Time is converted at about 1,800 photos a day (30 seconds each for 15 awake hours, the default schedule).
+   Time is converted to days at the frame's pace. Set `FRAMEREVIVE_SECONDS` (seconds per photo) and
+   `FRAMEREVIVE_AWAKE_HOURS` to your frame's settings; the controls page's "Your album" card shows the photos a
+   day it works out from them. The defaults are the app's own, 30 seconds and 15 hours, which is 1,800 photos a
+   day. A slower frame (240 seconds for 16 hours is 240 a day) takes much longer to get through an album, which
+   changes what matters: run the report at your real pace.
 
 ## Trying another strategy
 
@@ -66,7 +70,7 @@ is built from `AlbumStats` (the numbers) and `AlbumCard` (the HTML), pure Kotlin
 can be developed on the dev machine against a real album:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests '*AlbumCardPreview*' --rerun -i
+FRAMEREVIVE_SECONDS=240 FRAMEREVIVE_AWAKE_HOURS=16 ./gradlew :app:testDebugUnitTest --tests '*AlbumCardPreview*' --rerun -i
 ```
 
 This writes `local/controls-preview.html` (the whole controls page with the card in it) and

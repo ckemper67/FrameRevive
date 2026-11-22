@@ -15,8 +15,8 @@ import org.junit.Test
  */
 class RealAlbumSimulation {
     private val dayMs = 86_400_000L
-    /** About 1,800 photos a day: 30 seconds each for 15 awake hours, the default schedule. */
-    private val slotsPerDay = 1800
+    /** Photos a day at the frame's pace (FRAMEREVIVE_SECONDS and FRAMEREVIVE_AWAKE_HOURS; default 1,800 a day). */
+    private val slotsPerDay get() = AlbumFixture.slotsPerDay()
 
     private fun dayOf(p: FramePhoto) = Math.floorDiv(p.takenMs + p.offsetMs, dayMs)
 
@@ -30,22 +30,41 @@ class RealAlbumSimulation {
         val history = HashMap<String, PlayRecord>()
         val random = Random(seed)
         val shownPhotos = HashSet<String>(); val shownDays = HashSet<Long>()
-        var slots = 0; var bigSlots = 0; var recentSlots = 0; var clock = 0L
+        var slots = 0; var bigSlots = 0; var recentSlots = 0; var clock = 0L; var heldTotal = 0
+        val shown = ArrayList<FramePhoto>()
         val lines = ArrayList<String>()
         for (cycle in 1..checkpoints.max()) {
-            val round = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(), { null }, emptySet(), random).playlist
+            val built = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(), { null }, emptySet(), random)
+            val round = built.playlist
+            heldTotal += built.burstHeld
             assertEquals("a round never repeats a photo", round.size, round.map { it.id }.distinct().size)
             for (p in round) {
-                shownPhotos += p.id; shownDays += dayOf(p)
+                shownPhotos += p.id; shownDays += dayOf(p); shown += p
                 if ((perDay[dayOf(p)] ?: 0) >= bigDay) bigSlots++
                 if (p.dated && dayOf(p) >= recentFrom) recentSlots++
                 PhotoDeck.recorded(history, listOf(p.id), clock); clock += 30_000; slots++
             }
-            if (cycle in checkpoints) lines += "real album $label after $cycle rounds (%d slots, about %.1f days of display): photos shown %.0f%%, days reached %.0f%%, slots on days with %d+ photos %.0f%%, slots from the last %d months %.0f%%".format(
-                slots, slots / slotsPerDay.toDouble(), 100.0 * shownPhotos.size / photos.size,
-                100.0 * shownDays.size / perDay.size.coerceAtLeast(1), bigDay, 100.0 * bigSlots / slots, recentMonths, 100.0 * recentSlots / slots)
+            if (cycle in checkpoints) lines += ("real album $label after $cycle rounds (%d slots, about %.1f days of display): photos shown %.0f%%, days reached %.0f%%, slots on days with %d+ photos %.0f%%, " +
+                "slots from the last %d months %.0f%%, shown photos with a twin (another shown the same display day within 2 minutes of capture) %.1f%%, burst frames held back per round %.1f").format(
+                slots, slots / slotsPerDay, 100.0 * shownPhotos.size / photos.size,
+                100.0 * shownDays.size / perDay.size.coerceAtLeast(1), bigDay, 100.0 * bigSlots / slots, recentMonths, 100.0 * recentSlots / slots,
+                100.0 * twinShare(shown), heldTotal.toDouble() / cycle)
         }
         return lines
+    }
+
+    /** Share of shown photos that have another shown photo, in the same display day, captured within two minutes of it. */
+    private fun twinShare(shown: List<FramePhoto>): Double {
+        if (shown.isEmpty()) return 0.0
+        val perDay = slotsPerDay.toInt().coerceAtLeast(1)
+        var twins = 0
+        for (chunk in shown.chunked(perDay)) {
+            val times = chunk.map { it.takenMs }.sorted()
+            val twin = BooleanArray(times.size)
+            for (i in 1 until times.size) if (times[i] - times[i - 1] <= 120_000L) { twin[i] = true; twin[i - 1] = true }
+            twins += twin.count { it }
+        }
+        return twins.toDouble() / shown.size
     }
 
     private fun albumLine(photos: List<FramePhoto>, bigDay: Int = 20): String {

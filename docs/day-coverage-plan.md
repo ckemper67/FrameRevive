@@ -13,6 +13,28 @@ assumptions made earlier in this document. Companion to
    pictures.
 3. Does this make sense, and is the plan coherent? Critique it.
 
+## Correction: the frame's real pace (2026-11-22)
+
+The first version of this plan assumed the app's defaults, 30 seconds a photo and about 15 awake hours, which is
+1,800 photos a day. The owner's frame is set to **240 seconds a photo** and sleeps from 23:00 to 07:00 (16 awake
+hours): **240 photos a day**, 7.5 times fewer. The new "Your album" card, which reads the real settings, showed
+it; the settings were on the controls page all along and should have been read first. Every conversion from screen
+time to days in the earlier figures was wrong by that factor, and some conclusions change:
+
+- **A full pass is 65 days, not 8.6.** One photo from each of the 2,208 days takes 9.2 days, not 1.2. A deck that
+  walks photos one by one reaches only 78% of the days after 44 days of display (simulation); choosing days first
+  reaches every day in about 9. So day coverage is a large gain here, not a refinement.
+- **Repetition is not the problem; time is.** A photo is on screen for 4 minutes and the average photo returns
+  every 65 days. Nothing returns too soon, so the "minimum gap between showings" idea and the cap on the recent
+  share (the recent pool could supply 93% of slots at a 2-day gap) both disappear.
+- **The default 50% memories share is not too high.** A memory photo returns every 9.6 days and any other photo
+  every 115 days. What stands out is the imbalance, 12 times the airtime per photo, which is a matter of taste.
+- **The recency preference lasts longer** (a few weeks, not days) but still fades: the last six months take 13%
+  of slots in the first rounds and 4% after 44 days, against 2.9% of the photos.
+
+The tables below are recomputed at 240 photos a day. Set `FRAMEREVIVE_SECONDS` and `FRAMEREVIVE_AWAKE_HOURS` when
+running `RealAlbumSimulation` and `AlbumCardPreview` so they match (see `tuning-the-strategy.md`).
+
 ## What the frame does today (checked in the code)
 
 - **The unit is the photo.** The deck walks the album photo by photo: never-shown photos first, then the one
@@ -23,19 +45,21 @@ assumptions made earlier in this document. Companion to
   collage source is the newest 300 photos by capture time. Neither is a date.
 - **Recent photos are favoured only at the start.** The weighted draw added on 2026-11-22 ("Favor newer
   photos") applies only while never-shown photos remain. Once every photo has been shown once, the deck falls
-  back to least recently shown first, with no preference for recent ones. At 30 seconds a photo and about 15
-  awake hours (the default schedule) the frame shows about 1,800 photos a day, so a 15,500-photo album is
-  fully seen in about nine days. After that, a photo from last week and one from 2012 come up equally often.
-  That setting does less than it appeared to, and the plan below replaces it.
-- **The burst limit keeps the most similar frames.** Per round, a burst (3 or more frames within 60 minutes)
-  contributes at most 3. `Bursts.thin` ranks a burst's frames by "not yet shown", then sharpness, and keeps the
-  top 3. Sharpness is known for only about 5% of photos, so for the rest every frame ties; the sort is stable
-  and the frames are in time order, so it keeps the first three in time: consecutive shots. Measured on the
-  1,147 bursts of 4 or more frames in the real album: those three are a median 8 seconds apart (within 10
-  seconds in 57% of bursts) and cover a median 1.9 minutes of a 26-minute burst. Three frames chosen farthest
-  apart in time are a median 185 seconds apart (within 10 seconds in 12%) and cover 26 minutes. Next round the
-  rule prefers frames not shown yet, so a burst comes out in consecutive chunks of three. The perceptual hash
-  that should catch near-identical frames exists for only the photos that were downloaded, about 5%.
+  back to least recently shown first, with no preference for recent ones. At the owner's 240 photos a day the
+  first pass takes about 65 days, so the preference lasts a few weeks (the last six months take 13% of slots in
+  the first rounds, 4% after 44 days) and then every photo comes up equally often.
+- **The burst limit let near-identical frames through (found and fixed 2026-11-22, uncommitted).** Per round a
+  burst (3 or more frames within 60 minutes) contributed at most 3, chosen by "not yet shown", then sharpness. Sharpness
+  is known for about 5% of photos, so the order fell back to time order, and the perceptual hash that should catch
+  near-identical frames exists for only the downloaded photos, about 5%. A first measurement of this used the album's
+  whole bursts, which is not what the code sees (it sees one round's photos), so the claim that it "keeps three
+  consecutive frames" overstated it. Measured properly, through the real pipeline at the owner's 240 photos a day:
+  about 11% of shown photos had a twin shown the same display day, captured within 2 minutes (19% with the old hard
+  window), and the cap held back 70 to 115 frames a round. Three changes: pick the frames farthest apart in time from
+  those already chosen and those already shown; treat frames within two minutes of one chosen as the same picture even
+  without a hash (rapid sequences give one frame); and measure gaps in absolute time, not the local clock. Result
+  (default setting, about 31 days of display): twins 10.9% down to 1.1%, and 78% of days reached after 7,600 slots
+  instead of 10,500. Rounds get shorter, about 380 slots instead of 520, because rapid sequences contribute one frame.
 - **Memories are already day-ish.** Photos within 14 days of today's date in earlier years, as a share of the
   slots set by the slider (50% by default, but the pool is small so it fills only a few percent).
 
@@ -50,41 +74,52 @@ From `tools/album_dates.py` and the real-album simulation (`RealAlbumSimulation`
 - **Recent:** the last 6 months hold 448 photos on 95 days (last 3 months: 276 on 59; last 12: 703 on 170).
 - **Memories today** (within 14 days of 22 November, earlier years): 1,155 photos on 171 days. The pool is not
   small, which the synthetic album had hidden.
-- **Time:** at about 1,800 slots a day, one photo from each of the 2,208 days takes 1.2 days of display; a
-  full pass photo by photo takes 8.6 days.
-- **What the deck does to days today** (simulation, about 5.8 days of display, "somewhat" setting): 39% of slots
-  go to days with 20 or more photos (8% of days); 78% of days reached; recent six months get 4% of slots, against
-  2.9% of the photos, so the recent preference has faded to nothing. With the old hard window the figures are
-  31% of slots on big days, 58% of days reached, and 5% recent.
-- **The default 50% memories share is far too high for this album.** Memories get half the screen time, about
-  900 slots a day, from 1,155 photos, so each memory photo returns about every 1.3 days while every other photo
-  returns about every 16 days.
+- **Time:** at 240 photos a day (240 seconds each, 16 awake hours), one photo from each of the 2,208 days takes
+  9.2 days of display; a full pass photo by photo takes 65 days.
+- **What the deck does to days today** (simulation, about 44 days of display, "somewhat" setting): 39% of
+  slots go to days with 20 or more photos (8% of days); 78% of days reached; recent six months get 4% of slots,
+  against 2.9% of the photos. With the old hard window the figures are 31% of slots on big days, 58% of days
+  reached, and 5% recent.
+- **The 50% memories share at this pace.** Memories get half the screen time, 120 slots a day, from 1,155
+  photos: each memory photo returns about every 9.6 days and each of the 171 memory days is visited about every
+  1.4 days, while every other photo returns about every 115 days. It is not too often, but it is 12 times the
+  airtime per photo of everything else, so how large the share should be is a taste question.
 
 How much time a day gets, as a dial: airtime proportional to the photo count to the power a (a=1 is today, a=0
-is every day equal). Days between showings of one photo, by the size of its day, at 1,800 slots a day:
+is every day equal). At 240 photos a day, days between showings of one photo by the size of its day, and days
+between visits to the day itself (any photo of it), which is what "remembering a day" depends on:
 
 | a | 1 photo | 3 photos | 17 photos | 53 photos | 150 photos | big days' share of time |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1.00 (today) | 8.6 | 8.6 | 8.6 | 8.6 | 8.6 | 41% |
-| 0.75 | 4.6 | 6.1 | 9.4 | 12.5 | 16.2 | 31% |
-| 0.60 | 3.3 | 5.2 | 10.4 | 16.4 | 24.8 | 25% |
-| 0.50 | 2.7 | 4.7 | 11.3 | 19.9 | 33.5 | 21% |
-| 0.25 | 1.8 | 4.0 | 14.7 | 34.5 | 75.3 | 13% |
-| 0.00 (equal) | 1.2 | 3.7 | 20.9 | 65.0 | 184.0 | 8% |
+| **One photo returns every (days)** | | | | | | |
+| 1.00 (today) | 64.5 | 64.5 | 64.5 | 64.5 | 64.5 | 41% |
+| 0.75 | 34.8 | 45.8 | 70.7 | 93.9 | 121.8 | 31% |
+| 0.50 | 20.5 | 35.5 | 84.5 | 149.2 | 251.0 | 21% |
+| 0.25 | 13.2 | 30.0 | 110.3 | 258.7 | 564.5 | 13% |
+| 0.00 (equal) | 9.2 | 27.6 | 156.4 | 487.6 | 1,380 | 8% |
+| **The day is visited every (days)** | | | | | | |
+| 1.00 (today) | 64.5 | 21.5 | 3.8 | 1.2 | 0.4 | |
+| 0.75 | 34.8 | 15.3 | 4.2 | 1.8 | 0.8 | |
+| 0.50 | 20.5 | 11.8 | 5.0 | 2.8 | 1.7 | |
+| 0.25 | 13.2 | 10.0 | 6.5 | 4.9 | 3.8 | |
+| 0.00 (equal) | 9.2 | 9.2 | 9.2 | 9.2 | 9.2 | |
 
-Total screen time is fixed, so favouring days means a quiet day's photo returns sooner and a big day's photo later.
-At a=0 a one-photo day's picture would come back every 1.2 days and a 150-photo day's pictures once every six
-months; both are extremes. Around a=0.5 to 0.6 a quiet day's photo returns every 3 days and a big day's every
-3 to 5 weeks.
+Total screen time is fixed, so favouring days means a quiet day is visited sooner and a big day's photos return
+later. Today a 150-photo day is visited about twice a day while a one-photo day is visited every two months. At a=0
+every day is visited every 9 days, but a 150-photo day's pictures return only every 3.8 years. Around a=0.25 every
+day is visited every 4 to 13 days (a quiet day every 13, a typical one every 10, a big one every 4), and a big
+day's individual photos return about every year and a half. Repetition is not a concern at this pace in either
+direction.
 
-Shares of screen time and how often one photo of each pool returns (days), with the real pool sizes:
+Shares of screen time and how often one photo of each pool returns (days), with the real pool sizes at 240 a day:
 
 | Recent / memories / rest | Recent photo | Memory photo | Other photo |
 | --- | --- | --- | --- |
-| 10% / 15% / 75% | 2.5 | 4.3 | 10.3 |
-| 10% / 10% / 80% | 2.5 | 6.4 | 9.6 |
-| 15% / 15% / 70% | 1.7 | 4.3 | 11.0 |
-| 0% / 50% / 50% (today) | none | 1.3 | 15.4 |
+| 10% / 15% / 75% | 18.7 | 32.1 | 77.1 |
+| 20% / 15% / 65% | 9.3 | 32.1 | 89.0 |
+| 30% / 15% / 55% | 6.2 | 32.1 | 105.1 |
+| 25% / 20% / 55% | 7.5 | 24.1 | 105.1 |
+| 0% / 50% / 50% (today) | none | 9.6 | 115.7 |
 
 ## Days, timezones and moments (measured 2026-11-22)
 
@@ -190,7 +225,7 @@ photo and the awake hours from the sleep schedule). The readout for the planned 
 when those settings exist.
 
 Percentages hide the consequence. On the controls page, next to the settings, show what they produce, from the
-album's own numbers: "a photo from the last 6 months returns about every 4 days, an older one about every 11;
+album's own numbers: "a photo from the last 6 months returns about every 9 days, an older one about every 90;
 every day in the album is shown at least once every 2 days." These are computed from the pool sizes, the
 shares, the seconds per photo and the awake hours. A minimum gap between showings of one photo (suggested 2
 days while enough other photos exist) keeps a small recent pool from repeating all day.
@@ -220,17 +255,17 @@ possible.
 
 ## Critique
 
-- **Day coverage matters most at the start.** At about 1,800 slots a day, one photo per day for all 2,208 days
-  takes 1.2 days of display. After that the long-run effect is the airtime a day gets, which is why the dial in
-  part A is the real decision, not the coverage order.
-- **Equal airtime per day is too extreme on this album.** It would return a one-photo day's picture every 1.2
-  days and a 150-photo day's pictures about twice a year (table above). The middle of the dial, a between 0.5 and
-  0.6, keeps quiet days in view (every 3 days) without burying big events (every 3 to 5 weeks). Suggested
-  default 0.6; a is a single number, so it can be adjusted.
-- **The recent share is limited by supply, and that is the main trade.** The last 6 months hold 448 photos. At
-  a 2-day minimum gap they can supply 224 slots a day, 12% of 1,800; at 3 days, 8%. So 10% is about the most
-  that does not repeat photos every day or two, and it already brings a recent photo back every 2.5 days
-  against 10 for the rest, four times as often.
+- **Day coverage is a large gain at this pace.** One photo per day for all 2,208 days takes 9.2 days of display,
+  while the photo-by-photo deck needs 65 days to see everything and reaches 78% of the days after 44. After the
+  first pass, what a day gets is the airtime dial in part A, which is the real decision.
+- **Equal airtime per day is too extreme, but the middle is low.** At a=0 a one-photo day returns every 9 days and
+  a 150-photo day's pictures every 3.8 years. Because repetition is no concern at 240 a day, the dial can sit much
+  nearer equal than first thought: a around 0.25 visits every day every 4 to 13 days. Suggested default 0.25; a
+  is a single number, so it can be adjusted.
+- **The recent share is a question of taste, not supply.** The last 6 months hold 448 photos on 95 days. At 240 a
+  day even a 2-day minimum gap would let them supply 93% of the slots, so nothing limits the share. At 20% (48
+  slots a day) a recent photo returns every 9 days against 89 for the rest, and each recent day is visited every
+  2 days; at 40% each recent day would be on screen almost daily.
 - **A day is a coarse unit, but a measured one.** 31% of days hold two or more moments, so a second photo should
   come from another part of the day; "farthest in time from what was already shown that day" does that without
   defining moments. Timezones are handled by using each photo's own offset; a day that spans a flight stays one
@@ -284,16 +319,18 @@ install is always the slowest (code runs uncompiled), so judge on a later build.
 **Step 0c: one moment concept, picked by time (independent, can go first).** Replace the separate burst and
 collage groupings by one `Moments` grouping (absolute time, one gap of 2 hours, computed once on the worker), and
 one selection rule: from a moment, take the photo farthest in time from those already chosen and those already
-shown from that moment (shown ones come from the play history), ties by the existing "not yet shown, then
-sharpest" order. It replaces the time-blind ranking in the burst limit (which keeps the first three frames),
-drives collage picks (part D) and later the choice within a day (part A). The per-round cap of 3 per moment
-stays until the day deck makes it implicit; the perceptual-hash check stays as a second guard where a hash
-exists, but nothing relies on it. Includes the absolute-time fix to the grouping (with a test for two photos
-taken as the phone changes timezone). Measure on the real album, in `RealAlbumSimulation`: the median gap
-between the frames of a burst that a round keeps (today 8 seconds), the share of rounds' photos that have another
-photo within 2 minutes in the same display day, and the cohesion of collages (median time span, how often they
-mix moments). Expected from the measurements above: the burst gap rises from seconds to minutes, collage span
-falls from about 135 to about 40 minutes.
+shown from that moment, ties by the existing "not yet shown, then sharpest" order.
+
+Done (2026-11-22, uncommitted, not deployed): the burst limit uses that rule, treats frames within two minutes as the
+same picture, and measures gaps in absolute time (with tests, including two photos taken as the phone changes
+timezone). Results on the real album are in "What the frame does today". The per-round cap of 3 per burst stays, and
+the hash check stays as a second guard. The burst gap is still 60 minutes.
+
+Still to do: collages drawn from a moment instead of a calendar day, with the day as fallback (part D), using
+`Bursts.events` with a 2-hour gap; and a cohesion measure in `RealAlbumSimulation` (median time span of a collage's
+photos, how often it mixes moments; expected from the measurements above: about 135 minutes down to about 40). Open
+side effect to decide: the rounds are now about 380 slots, so the "Photos per round" label no longer says exactly how
+many photos a round holds. Either draw more candidates to fill the round after thinning, or reword the label.
 
 **Step 1: day deck.** Group by day, order by depth then last shown, choose the photo within a day, with the
 airtime dial. Simulation compares today's deck and the day deck: share of slots by day size, days covered after
@@ -311,16 +348,18 @@ instead of treating the whole 14-day window alike.
 
 ## Decisions for the owner
 
-1. **Airtime for a day:** the exponent a from the table. Suggested 0.6 (a quiet day's photo returns every 3
-   days, a big day's every 3 to 4 weeks); 0.75 is gentler, 0.5 stronger.
+1. **Airtime for a day:** the exponent a from the table. Suggested 0.25: every day is visited every 4 to 13 days
+   (a quiet day every 13, a typical one every 10, a big one every 4). 0.5 favours big days more; 0 is strictly equal.
 2. **Recent period:** six months as you said. Fine as a default?
-3. **How often may a photo return?** The minimum gap decides how large the recent share can be. 2 days is
-   suggested; on this album that caps recent at about 12% of the screen time. What feels like too often?
+3. **Minimum gap between showings of one photo:** at your pace nothing returns within weeks, so such a limit would
+   never act. Suggested: do not build it. Agree?
 4. **Mix:** three numbers (recent, this time of year, everything else) replacing the single slider?
 5. **Day boundary:** the photo's local calendar day. Fine?
 6. **Retire "Favor newer photos" and hide "Photos per round"?** Suggested yes.
-7. **Memories share:** the current 50% brings each memory photo back every 1.3 days. Suggested 10 to 15%. Do
-   you want memories to be a large part of what you see, or an occasional treat?
+7. **Memories share:** at 50% each memory photo returns every 9.6 days and each of the 171 memory days is visited
+   every 1.4 days, 12 times the airtime per photo of everything else. At 25% a memory photo returns every 19
+   days and a memory day every 2.9; at 15%, every 32 and 4.8. Do you want memories to be a large part of what you
+   see, or an occasional treat?
 8. **Collage moments:** is 2 hours the right gap for a collage, or would you prefer tighter (1 hour: median span
    19 minutes, a qualifying moment on 84% of days instead of 89%)?
 9. **Step 0 is done** (album measured). Next: Step 0b (background round build) or Step 1 (the day deck)?

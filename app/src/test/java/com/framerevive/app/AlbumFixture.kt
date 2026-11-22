@@ -24,4 +24,13 @@ object AlbumFixture {
     }
 
     fun load(): List<FramePhoto>? = source()?.let { parse(it.readLines()) }
+
+    /**
+     * The frame's pace, which turns screen time into days. Set FRAMEREVIVE_SECONDS (seconds per photo) and
+     * FRAMEREVIVE_AWAKE_HOURS to match your frame: the controls page's "Your album" card shows the photos a day it
+     * works out. The defaults are the app's own, 30 seconds and 15 awake hours, 1,800 photos a day.
+     */
+    fun secondsPerPhoto(): Int = System.getenv("FRAMEREVIVE_SECONDS")?.toIntOrNull()?.takeIf { it > 0 } ?: 30
+    fun awakeHours(): Double = System.getenv("FRAMEREVIVE_AWAKE_HOURS")?.toDoubleOrNull()?.takeIf { it > 0 } ?: 15.0
+    fun slotsPerDay(): Double = 3600.0 / secondsPerPhoto() * awakeHours()
 }
