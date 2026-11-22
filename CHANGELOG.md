@@ -45,6 +45,10 @@
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Stop showing near-identical frames: from a burst the frame now picks the photos farthest apart in time, treats
+  photos taken within two minutes of one chosen as the same picture (the perceptual hash exists for few photos), and
+  measures gaps in absolute time so a timezone change cannot split a burst. On a real 15,000-photo album the share of
+  shown photos with a twin on the same day fell from about 11% to 1%.
 - Add `tools/album_dates.py`, which reads a shared album's capture times (times only, no ids or addresses) so a
   maintainer can run the playback simulation on a real album's shape; see docs/tuning-the-strategy.md.
 - Apply the soft-photo gate to every slide, not only collages, with a "Skip blurry photos" choice (off, only

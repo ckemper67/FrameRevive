@@ -32,20 +32,47 @@ class BurstsTest {
     }
 
     @Test fun aBurstKeepsThreeFramesAndHoldsTheRestBack() {
-        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it * 10) }
         val result = Bursts.thin(cycle, emptyMap()) { null }
         assertEquals(3, result.kept.size)
         assertEquals(7, result.heldBack)
-        assertEquals("order must be preserved", result.kept.map { it.id }, listOf("p1", "p2", "p3"))
+        // Frames one minute apart: the first, the last, and the one farthest from both, in cycle order.
+        assertEquals(listOf("p1", "p5", "p10"), result.kept.map { it.id })
     }
 
-    @Test fun unseenFramesComeBeforeAlreadyShownOnesThenSharpnessBreaksTies() {
-        val cycle = (1..6).map { photo("p$it", 0, 9 * 60 + it) }
+    @Test fun theKeptFramesAreFarthestApartInTimeNotTheEarliest() {
+        val cycle = (0 until 20).map { photo("p$it", 0, 9 * 60 + it * 3) }
+        val kept = Bursts.thin(cycle, emptyMap()) { null }.kept
+        val minutes = kept.map { it.takenMs / minute }.sorted()
+        assertEquals("the span of the burst is covered", 57L, minutes.last() - minutes.first())
+        assertTrue("no two kept frames are neighbours: ${minutes}", minutes.zipWithNext().all { (a, b) -> b - a >= 27 })
+    }
+
+    @Test fun aFrameFartherFromWhatWasAlreadyShownIsPreferred() {
+        val cycle = (1..6).map { photo("p$it", 0, 9 * 60 + it * 10) }
+        // p1 was shown. Among the unseen, p6 is the farthest from it, then the one farthest from p1 and p6.
+        val kept = Bursts.thin(cycle, mapOf("p1" to PlayRecord(1L, 1)), keep = 2) { null }.kept.map { it.id }
+        assertEquals(listOf("p3", "p6"), kept)
+    }
+
+    @Test fun aTimezoneChangeBetweenTwoPhotosDoesNotSplitAnEvent() {
+        val hour = 60 * minute
+        val a = FramePhoto("a", "u", 100 * hour, -7 * hour)
+        val b = FramePhoto("b", "u", 100 * hour + 20 * minute, 2 * hour)   // 20 minutes later, the phone now on UTC+2
+        val c = FramePhoto("c", "u", 100 * hour + 40 * minute, 2 * hour)
+        assertEquals("one event, by absolute time", 1, Bursts.events(listOf(a, b, c)).size)
+        assertEquals(listOf("a", "b", "c"), Bursts.events(listOf(c, a, b)).single().photos.map { it.id })
+    }
+
+    @Test fun unseenFramesComeBeforeShownOnesAndSharpnessBreaksTiesBetweenEquallyFarFrames() {
+        val cycle = (1..6).map { photo("p$it", 0, 9 * 60 + it * 5) }
         // p1 and p2 were already shown; p3..p6 are new, with p5 the sharpest.
         val seen = mapOf("p1" to PlayRecord(1L, 1), "p2" to PlayRecord(1L, 1))
         val sharp = mapOf("p1" to 0.9f, "p2" to 0.9f, "p3" to 0.1f, "p4" to 0.2f, "p5" to 0.8f, "p6" to 0.05f)
         val kept = Bursts.thin(cycle, seen) { sharp[it.id] }.kept.map { it.id }
-        assertEquals("the sharpest of the unseen frames must win", listOf("p3", "p4", "p5"), kept)
+        // p6 is the unseen frame farthest from the shown p1 and p2; then p4 is the farthest from p6 and the shown ones;
+        // p3 and p5 are then equally far from what is chosen, and the sharper p5 wins the tie.
+        assertEquals(listOf("p4", "p5", "p6"), kept)
     }
 
     @Test fun shortEventsAndSmallCyclesAreLeftAlone() {
@@ -56,8 +83,8 @@ class BurstsTest {
     }
 
     @Test fun separateOutingsAllSurviveInOneCycle() {
-        val first = (1..6).map { photo("a$it", 0, 9 * 60 + it) }
-        val second = (1..6).map { photo("b$it", 0, 14 * 60 + it) }
+        val first = (1..6).map { photo("a$it", 0, 9 * 60 + it * 10) }
+        val second = (1..6).map { photo("b$it", 0, 14 * 60 + it * 10) }
         val result = Bursts.thin(first + second, emptyMap()) { null }
         assertEquals(6, result.kept.size)
         assertEquals(6, result.heldBack)
@@ -79,7 +106,7 @@ class BurstsTest {
     }
 
     @Test fun aBurstOfDistinctShotsStillKeepsItsLimit() {
-        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it * 10) }
         val result = Bursts.thin(cycle, emptyMap(), hashes = hashed(cycle, ::distinct)) { null }
         assertEquals(3, result.kept.size)
         assertEquals(7, result.heldBack)
@@ -91,7 +118,8 @@ class BurstsTest {
         val cycle = (1..8).map { photo("p$it", 0, 9 * 60 + it) }
         val hashes = hashed(cycle) { i -> distinct(if (i < 4) 0 else 1) xor (1L shl (40 + i % 2)) }
         val result = Bursts.thin(cycle, emptyMap(), hashes = hashes) { null }
-        assertEquals(listOf("p1", "p5"), result.kept.map { it.id })
+        // The first frame, then the one farthest from it, which lies in the other scene.
+        assertEquals(listOf("p1", "p8"), result.kept.map { it.id })
         assertEquals(6, result.similar)
     }
 
@@ -102,7 +130,7 @@ class BurstsTest {
     }
 
     @Test fun unhashedFramesAreNeverLeftOut() {
-        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it * 10) }
         val result = Bursts.thin(cycle, emptyMap(), hashes = mapOf("p1" to 0L)) { null }
         assertEquals("only the keep limit applies to unhashed frames", 3, result.kept.size)
         assertEquals(0, result.similar)
@@ -119,5 +147,59 @@ class BurstsTest {
     @Test fun withoutHashesTheEventPassIsUnchanged() {
         val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
         assertEquals(Bursts.thin(cycle, emptyMap()) { null }.kept, Bursts.thin(cycle, emptyMap(), hashes = emptyMap()) { null }.kept)
+    }
+
+    private val second = 1000L
+    private fun at(id: String, seconds: Long) = FramePhoto(id, "u$id", 100 * 60 * minute + seconds * second)
+
+    @Test fun twoFramesWithinTwoMinutesAreTheSamePictureAndOneIsKept() {
+        val result = Bursts.thin(listOf(at("a", 0), at("b", 60), at("c", 5000)), emptyMap()) { null }
+        assertEquals(listOf("a", "c"), result.kept.map { it.id })
+        assertEquals(1, result.similar)
+    }
+
+    @Test fun twoFramesThreeMinutesApartAreBothKept() {
+        val result = Bursts.thin(listOf(at("a", 0), at("b", 180), at("c", 5000)), emptyMap()) { null }
+        assertEquals(listOf("a", "b", "c"), result.kept.map { it.id })
+        assertEquals(0, result.similar)
+    }
+
+    @Test fun aRapidSequenceGivesOneFrameNotThree() {
+        val cycle = (0 until 10).map { at("r$it", it * 10L) }          // ten frames in 90 seconds
+        val result = Bursts.thin(cycle, emptyMap()) { null }
+        assertEquals(1, result.kept.size)
+        assertEquals(9, result.similar)
+        assertEquals(0, result.heldBack)
+    }
+
+    @Test fun twoRapidSequencesAMomentApartGiveOneFrameEach() {
+        val cycle = listOf(at("a1", 0), at("a2", 10), at("a3", 20), at("b1", 20 * 60), at("b2", 20 * 60 + 10), at("b3", 20 * 60 + 20))
+        val kept = Bursts.thin(cycle, emptyMap()) { null }.kept.map { it.id }
+        assertEquals(2, kept.size)
+        assertTrue(kept.any { it.startsWith("a") } && kept.any { it.startsWith("b") })
+    }
+
+    @Test fun theFirstFrameOfAnEventIsNeverDropped() {
+        // A long run of frames, each 5 minutes from the last: nothing is within two minutes, so nothing is dropped.
+        val cycle = (0 until 3).map { at("f$it", it * 300L) }
+        assertEquals(listOf("f0", "f1", "f2"), Bursts.thin(cycle, emptyMap()) { null }.kept.map { it.id })
+    }
+
+    @Test fun separationAppliesWithoutAnyHashes() {
+        val cycle = listOf(at("a", 0), at("b", 5), at("c", 4000))
+        val result = Bursts.thin(cycle, emptyMap(), hashes = emptyMap()) { null }
+        assertEquals(listOf("a", "c"), result.kept.map { it.id })
+    }
+
+    @Test fun undatedFramesAreNotJudgedByTime() {
+        val undated = listOf(FramePhoto("x", "u", 0L), FramePhoto("y", "u", 0L), FramePhoto("z", "u", 0L))
+        assertEquals(3, Bursts.thin(undated, emptyMap()) { null }.kept.size)
+    }
+
+    @Test fun framesNearAShownOneInTheSameBurstAreLeftForLater() {
+        val cycle = listOf(at("shown", 0), at("near", 45), at("far", 3000), at("also", 6000))
+        val kept = Bursts.thin(cycle, mapOf("shown" to PlayRecord(1L, 1)), keep = 2) { null }.kept.map { it.id }
+        assertTrue("the frame 45 seconds from a shown one waits: $kept", "near" !in kept)
+        assertEquals(setOf("far", "also"), kept.toSet())
     }
 }

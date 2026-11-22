@@ -31,17 +31,20 @@ object Bursts {
     const val MIN_EVENT = 3
     /** Frames of one burst allowed into a single cycle. */
     const val KEEP = 3
+    /** Frames captured this close together count as the same picture, whether or not a hash says so. */
+    const val MIN_SEPARATION_MS = 2L * 60L * 1000L
 
     /** Events in capture order. Input need not be sorted; photos without a timestamp are kept as singletons. */
     fun events(photos: List<FramePhoto>, maxGapMs: Long = MAX_GAP_MS): List<Event> {
         if (photos.isEmpty()) return emptyList()
-        val dated = photos.filter { it.dated }.sortedBy { it.takenMs + it.offsetMs }
+        // Absolute capture time, not the local clock: when the phone changes timezone between two photos taken minutes
+        // apart, the local gap jumps by hours and would split one event in two.
+        val dated = photos.filter { it.dated }.sortedBy { it.takenMs }
         val undated = photos.filterNot { it.dated }
         val out = ArrayList<Event>()
         var start = 0
         for (i in 1..dated.size) {
-            val gap = if (i == dated.size) Long.MAX_VALUE else
-                (dated[i].takenMs + dated[i].offsetMs) - (dated[i - 1].takenMs + dated[i - 1].offsetMs)
+            val gap = if (i == dated.size) Long.MAX_VALUE else dated[i].takenMs - dated[i - 1].takenMs
             if (gap > maxGapMs) {
                 if (i > start) out += Event(dated.subList(start, i).toList())
                 start = i
@@ -55,6 +58,9 @@ object Bursts {
      * A cycle with the over-represented frames held back. Order is preserved, so the deck's decisions survive
      * this pass; held-back frames are simply left out of this cycle and stay eligible for the next one.
      */
+    /** Capture times of the frames of [event] already allowed into this cycle. */
+    private fun allowedTimes(event: Event, allowed: Set<String>): List<Long> = event.photos.filter { it.id in allowed }.map { it.takenMs }
+
     fun thin(cycle: List<FramePhoto>, seen: Map<String, PlayRecord>, keep: Int = KEEP, maxGapMs: Long = MAX_GAP_MS,
              hashes: Map<String, Long> = emptyMap(), threshold: Int = PhotoSimilarity.THRESHOLD,
              sharpness: (FramePhoto) -> Float?): BurstResult {
@@ -64,20 +70,52 @@ object Bursts {
         var held = 0; var similar = 0
         for (event in events) {
             val limited = event.isBurst && event.photos.size > keep
-            if (!limited && (hashes.isEmpty() || event.photos.size < 2)) {
+            if (!limited && event.photos.size < 2) {
                 event.photos.forEach { allowed += it.id }
                 continue
             }
-            val ranked = if (!limited) event.photos else event.photos.sortedWith(
-                compareBy<FramePhoto> { if ((seen[it.id]?.plays ?: 0) > 0) 1 else 0 }
-                    .thenByDescending { sharpness(it) ?: -1f })
-            val chosen = ArrayList<FramePhoto>(keep)
             val chosenHashes = ArrayList<Long>(keep)
-            for (photo in ranked) {
+            if (limited) {
+                // Rank by "not yet shown", then sharpness, which decides the first pick and every tie. After that each
+                // pick is the frame farthest in time from those already chosen and from frames of this event already
+                // shown, so a burst gives frames from different stretches of it, not neighbours of one instant. Sharpness
+                // is known for few photos, so the rank alone would pick the earliest frames in time order.
+                val remaining = ArrayList(event.photos.sortedWith(
+                    compareBy<FramePhoto> { if ((seen[it.id]?.plays ?: 0) > 0) 1 else 0 }
+                        .thenByDescending { sharpness(it) ?: -1f }))
+                val anchors = remaining.filter { (seen[it.id]?.plays ?: 0) > 0 }.map { it.takenMs }
+                var chosen = 0
+                while (chosen < keep && remaining.isNotEmpty()) {
+                    val unseen = remaining.filter { (seen[it.id]?.plays ?: 0) == 0 }
+                    val reference = anchors + allowedTimes(event, allowed)
+                    // Frames within MIN_SEPARATION_MS of one already chosen or shown are the same picture; leave them for a later cycle.
+                    val apart = { p: FramePhoto -> reference.none { kotlin.math.abs(p.takenMs - it) < MIN_SEPARATION_MS } }
+                    val pool = unseen.filter(apart).ifEmpty { if (unseen.isEmpty()) remaining.filter(apart) else emptyList() }
+                    if (pool.isEmpty()) break
+                    val next = if (reference.isEmpty()) pool.first() else pool.maxByOrNull { p -> reference.minOf { kotlin.math.abs(p.takenMs - it) } }!!
+                    remaining.remove(next)
+                    val hash = hashes[next.id]
+                    if (hash != null && chosenHashes.any { PhotoSimilarity.near(hash, it, threshold) }) { similar++; continue }
+                    allowed += next.id; chosen++
+                    if (hash != null) chosenHashes += hash
+                }
+                // What is left was either the same picture as a chosen or shown frame (by hash or by time) or simply over the limit.
+                val settled = anchors + allowedTimes(event, allowed)
+                for (photo in remaining) {
+                    val hash = hashes[photo.id]
+                    val same = (hash != null && chosenHashes.any { PhotoSimilarity.near(hash, it, threshold) }) ||
+                        settled.any { kotlin.math.abs(photo.takenMs - it) < MIN_SEPARATION_MS }
+                    if (same) similar++ else held++
+                }
+                continue
+            }
+            var lastKept: Long? = null
+            for (photo in event.photos) {
                 val hash = hashes[photo.id]
                 if (hash != null && chosenHashes.any { PhotoSimilarity.near(hash, it, threshold) }) { similar++; continue }
-                if (limited && chosen.size >= keep) { held++; continue }
-                chosen += photo; allowed += photo.id
+                if (photo.dated && lastKept?.let { photo.takenMs - it < MIN_SEPARATION_MS } == true) { similar++; continue }
+                allowed += photo.id
+                if (photo.dated) lastKept = photo.takenMs
                 if (hash != null) chosenHashes += hash
             }
         }
