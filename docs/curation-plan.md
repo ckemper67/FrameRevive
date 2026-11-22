@@ -160,8 +160,8 @@ events only an exact repeat (the same picture saved twice) is dropped, which kee
 The windowed `PhotoSimilarity.thin` is gone; `dhash`, `near` and `hasDuplicates` remain. The simulation gives
 burst frames near-identical hashes: near-identical frames left in a cycle 2 -> 0, coverage unchanged (19%).
 What is lost: a near-duplicate pair on different days (not an exact repeat) is no longer caught, which the old
-window did only by chance in a shuffled playlist. Not done yet: the `recentCount` rename and showing skip and
-fallback counts on the controls page.
+window did only by chance in a shuffled playlist. The controls page and diagnostics now show collages shown, skipped and served by the other source since the
+app started (`SlideChooser.collageReport`). Not done yet: the `recentCount` rename (needs a UI label).
 
 Done when collage photos obey the same repeat and burst limits as singles and coverage is no worse than the
 Phase 0 baseline. Risk: a strict gate starves same-day collages; keep the RECENT fallback and report how

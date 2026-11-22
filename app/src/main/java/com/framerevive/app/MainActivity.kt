@@ -863,7 +863,8 @@ class MainActivity : Activity() {
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
             "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
                 (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen, dates " +
-                    lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo")),
+                    lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo") +
+                " · Since start: ${chooser.collageReport()}"),
             "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
                 else "On · frame ${if(frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"} · ${if(lastSlide?.pair == true) "pair on screen" else "single photo"} · up to ${(PairSelection.MAX_CROP*100).toInt()}% crop per photo"),
             "ownerSummary" to (if (updater.isDeviceOwner()) "FrameRevive runs this frame as device owner: updates install without Android's prompt." else "Not device owner: Android asks on the frame before each installation."),
@@ -893,6 +894,7 @@ class MainActivity : Activity() {
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
+                "Collages since start: ${chooser.collageReport()}",
                 "Bursts: $burstEvents events of ${Bursts.MIN_EVENT}+ frames within ${Bursts.MAX_GAP_MS/60000} minutes; $burstHeld frames held back this cycle (${Bursts.KEEP} per event)",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",

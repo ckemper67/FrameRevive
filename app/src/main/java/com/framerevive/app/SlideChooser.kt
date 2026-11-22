@@ -34,6 +34,9 @@ class SlideChooser(private val random: Random = Random.Default) {
     /** Collages that took the other source because the chosen one had nothing eligible and ready. */
     var themeFallbacks = 0; private set
 
+    /** What collages did since the app started, for the controls page: a skip is a collage that fell due and found nothing. */
+    fun collageReport(): String = "$collagesChosen shown, $collageSkips skipped for want of eligible ready photos, $themeFallbacks from the other source"
+
     /** Starts a cycle from a freshly built playlist. */
     fun load(cycle: List<FramePhoto>, recent: Set<String>, excludedIds: Set<String> = emptySet()) {
         playlist = cycle; recentIds = recent; index = 0

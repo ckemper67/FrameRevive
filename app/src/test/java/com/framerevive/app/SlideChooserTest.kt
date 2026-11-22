@@ -147,4 +147,13 @@ class SlideChooserTest {
         assertEquals(1, chooser.collageSkips)
         assertEquals(0, chooser.collagesChosen)
     }
+
+    @Test fun theReportCountsShownSkippedAndFallbackCollages() {
+        val chooser = chooser(singles + group)
+        assertEquals("0 shown, 0 skipped for want of eligible ready photos, 0 from the other source", chooser.collageReport())
+        chooser.showSingles(5)
+        chooser.next(context(usable = false), null)
+        chooser.next(context(), null)
+        assertEquals("1 shown, 1 skipped for want of eligible ready photos, 0 from the other source", chooser.collageReport())
+    }
 }
