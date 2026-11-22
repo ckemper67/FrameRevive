@@ -336,21 +336,15 @@ class MainActivity : Activity() {
 
     private fun rebuild() {
         day = LocalDate.now()
-        val started = System.nanoTime()
-        val normal = PhotoSelection.playlist(photos,day,recentCount=prefs.getInt("recentCount",300),
-            memoryDays=prefs.getInt("memoryDays",14),recentPercent=prefs.getInt("recentPercent",50),seen=playHistory,
-            byRecency=photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } },
-            seasonalCandidates=seasonalPhotos)
-        deckMs = (System.nanoTime()-started)/1_000_000
+        val cycle = PlaybackEngine.buildCycle(photos, day,
+            CycleSettings(prefs.getInt("recentCount",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50)),
+            playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
+            hashes, { qualityScores[it.id] }, priorityIds)
+        deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
-        val before = normal.size
-        val thinned = PhotoSimilarity.thin(normal, hashes)
-        similarSkipped += before - thinned.size
-        // Then the burst pass: one afternoon should not fill the queue with forty shots of the same moment.
-        // Frames it holds back are not marked shown, so they return in a later cycle.
-        val bursts = Bursts.thin(thinned, playHistory) { qualityScores[it.id] }
-        burstHeld = bursts.heldBack
-        playlist = PhotoSelection.prioritize(bursts.kept,photos,priorityIds)
+        similarSkipped += cycle.similarSkipped
+        burstHeld = cycle.burstHeld
+        playlist = cycle.playlist
         recentIds = photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
         preloader.clear()
         index = 0

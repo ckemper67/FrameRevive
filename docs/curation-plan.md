@@ -68,6 +68,21 @@ scoring signal lands in Phase 4. Not before.
 - Report: repeats within a cycle, coverage after N slides, capture-year histogram, share of each
   presentation, burst share per cycle.
 
+Progress: `PlaybackEngine.buildCycle` (the playlist, thinning, burst and priority passes of `rebuild()`) is
+extracted, and `PlaybackSimulation` runs it. `showNext`, `planPreloads` and `ensureSeasonal` are still in the
+activity. `playHistory` is already a `ConcurrentHashMap`, so that item is settled.
+
+Baseline (defaults, seed 7, album of 14,746 photos with a 40-photo seasonal pocket, playlist level only,
+no hashes or sharpness scores). Presentation mix needs the `showNext` extraction and is not measured yet:
+
+| Cycle | Slots | Seasonal slots | Repeated slots | Max plays of one photo | Burst share | Coverage |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 585 | 285 | 247 | 8 | 5.0% | 2.0% |
+| 3 | 584 | 284 | 246 | 8 | 5.0% | 6.0% |
+| 5 | 586 | 286 | 248 | 8 | 7.3% | 10.0% |
+
+Every repeat is in the seasonal half, which confirms problem 1. With 100% recent there are none (tested).
+
 Done when the simulation runs in `testDebugUnitTest` and baseline numbers are recorded here.
 Risk: extraction changes behavior; the characterization tests guard it.
 
