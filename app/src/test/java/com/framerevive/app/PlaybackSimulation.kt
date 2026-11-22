@@ -110,7 +110,7 @@ class PlaybackSimulation {
                 closeCycle()
                 val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
                     { null }, emptySet(), random)
-                chooser.load(cycle.playlist, byRecency.take(settings.recentCount).map { it.id }.toSet(), cycle.excluded)
+                chooser.load(cycle.playlist, byRecency.take(settings.roundSize).map { it.id }.toSet(), cycle.excluded)
                 cycleIds += cycle.playlist.map { it.id }
             }
             val wasDue = chooser.cadence.due(collageEvery)

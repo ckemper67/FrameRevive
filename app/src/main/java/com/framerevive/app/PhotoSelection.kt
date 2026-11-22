@@ -50,10 +50,10 @@ object PhotoSelection {
      * cycle would like; a pool too small to fill them contributes only what it has, and the shortfall goes
      * back to the recent deck instead of replaying the same few memories to hold the ratio.
      */
-    fun playlist(photos: List<FramePhoto>, today: LocalDate, random: Random = Random.Default, recentCount: Int = 300, memoryDays: Int = 14, recentPercent: Int = 50,
+    fun playlist(photos: List<FramePhoto>, today: LocalDate, random: Random = Random.Default, roundSize: Int = 300, memoryDays: Int = 14, recentPercent: Int = 50,
                  seen: Map<String, PlayRecord> = emptyMap(), byRecency: List<FramePhoto> = photos.sortedByDescending { it.takenMs },
                  seasonalCandidates: List<FramePhoto>? = null): List<FramePhoto> {
-        require(recentCount in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
+        require(roundSize in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
         if (photos.isEmpty()) return emptyList()
         val seasonal = seasonalCandidates ?: seasonal(photos, today, memoryDays)
         // Seasonal photos belong to the memories slot alone: at 100% the owner has asked for no memories, and
@@ -62,12 +62,12 @@ object PhotoSelection {
         // The recent pool is a deck, not the newest slice: photos never shown, then the ones shown longest
         // ago, so a large album is covered instead of circling its newest few hundred.
         val pool = if (memoryIds.isEmpty()) byRecency else byRecency.filter { it.id !in memoryIds }
-        if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, recentCount, random)
+        if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, roundSize, random)
         val memoryOrder = seasonal.sortedByDescending { it.takenMs }
         if (recentPercent == 0) return PhotoDeck.deck(memoryOrder, seen, memoryOrder.size, random)
-        val wanted = Math.round(recentCount * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - recentCount)
+        val wanted = Math.round(roundSize * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - roundSize)
         val memories = PhotoDeck.deck(memoryOrder, seen, wanted, random)
-        val latest = PhotoDeck.deck(pool, seen, (recentCount + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random)
+        val latest = PhotoDeck.deck(pool, seen, (roundSize + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random)
         return interleave(latest, memories)
     }
 

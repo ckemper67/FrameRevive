@@ -4,7 +4,7 @@ import java.time.LocalDate
 import kotlin.random.Random
 
 /** The settings that shape one cycle of the playlist. */
-data class CycleSettings(val recentCount: Int = 300, val memoryDays: Int = 14, val recentPercent: Int = 50)
+data class CycleSettings(val roundSize: Int = 300, val memoryDays: Int = 14, val recentPercent: Int = 50)
 
 /** One built cycle, with what each stage held back so the controls page and the simulation can report it. */
 data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, val burstHeld: Int, val deckNanos: Long,
@@ -24,7 +24,7 @@ object PlaybackEngine {
                    byRecency: List<FramePhoto>, seasonal: List<FramePhoto>?, hashes: Map<String, Long>,
                    quality: (FramePhoto) -> Float?, priorityIds: Set<String>, random: Random = Random.Default): CycleBuild {
         val started = System.nanoTime()
-        val normal = PhotoSelection.playlist(photos, today, random, settings.recentCount, settings.memoryDays,
+        val normal = PhotoSelection.playlist(photos, today, random, settings.roundSize, settings.memoryDays,
             settings.recentPercent, seen, byRecency, seasonal)
         val deckNanos = System.nanoTime() - started
         val bursts = Bursts.thin(normal, seen, hashes = hashes, sharpness = quality)

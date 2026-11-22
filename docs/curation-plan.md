@@ -1,7 +1,7 @@
 # Plan: curation and presentation overhaul
 
 Status (2026-11-22): Phases 0 to 2 are mostly built on branch `curation-phase-2` (on `origin`) and deployed to the
-frame once. Open: the `recentCount` rename, `ensureSeasonal()` still in the activity, and all of Phases 3 and 4. Each
+frame once. Open: `ensureSeasonal()` still in the activity, and all of Phases 3 and 4. Each
 phase section below carries its own progress notes. Written from the code on `show-pair` (build 67 era), then
 revised after an independent review (see "Review notes" at the end).
 
@@ -116,7 +116,7 @@ Done when the simulation shows zero within-cycle repeats at default settings and
 wrap returns.
 
 Result (branch `curation-phase-1`): `PhotoSelection.playlist` builds the memories as a deck as well. The
-slider sets a quota of memory slots (`recentCount * (100 - p) / p`); the pool fills what it can, the shortfall
+slider sets a quota of memory slots (`roundSize * (100 - p) / p`); the pool fills what it can, the shortfall
 is added to the recent deck, and the two are interleaved evenly with no wrap. Same album and seed as the
 baseline, playlist level:
 
@@ -146,7 +146,7 @@ slots from 3 photos) and were rewritten to the new rules.
   cycle thinning stays cheap and on the cycle.
 - Data compatibility: `photo-history.json` (despite the name, tab-separated lines) keeps its current format and loads without migration. Any new
   per-photo state goes in a separate file with its own version field.
-- Rename `recentCount` in code to a deck-size name; settle the UI label separately.
+- Rename `recentCount` to a deck-size name; settle the UI label separately. Done: the label is "Photos per round" and the name is `roundSize` everywhere, including the stored setting and the form field (a frame that had changed the old value falls back to the default 300).
 
 Progress (branch `curation-phase-2`), first slice: `SlideChooser.claim` is now the only place a play is
 recorded (the activity calls it from `markDisplayed`). The chooser keeps the set of photos shown this cycle and
@@ -163,7 +163,7 @@ The windowed `PhotoSimilarity.thin` is gone; `dhash`, `near` and `hasDuplicates`
 burst frames near-identical hashes: near-identical frames left in a cycle 2 -> 0, coverage unchanged (19%).
 What is lost: a near-duplicate pair on different days (not an exact repeat) is no longer caught, which the old
 window did only by chance in a shuffled playlist. The controls page and diagnostics now show collages shown, skipped and served by the other source since the
-app started (`SlideChooser.collageReport`). Not done yet: the `recentCount` rename (needs a UI label).
+app started (`SlideChooser.collageReport`). The `recentCount` to `roundSize` rename is done.
 
 Done when collage photos obey the same repeat and burst limits as singles and coverage is no worse than the
 Phase 0 baseline. Risk: a strict gate starves same-day collages; keep the RECENT fallback and report how

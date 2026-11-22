@@ -46,7 +46,7 @@ restart does not resurrect a photo shown an hour ago. Prune ids that leave the a
 
 **A2. Recency decay instead of a hard "newest 300"** (S/M)
 Weight `w(photo) = floor + (1 - floor) * exp(-age / τ)`, τ ≈ 180 days, floor ≈ 0.05 so old photos still surface.
-Replace `recentCount` with a "recent pool" that the decay draw samples; keep the existing recent/memories
+Replace `roundSize` with a "recent pool" that the decay draw samples; keep the existing recent/memories
 percent slider so seasonal memories are not starved.
 *Prove it:* distribution of capture years over 200 slides, before and after, reported from the page.
 

@@ -334,14 +334,14 @@ class MainActivity : Activity() {
     private fun rebuild() {
         day = LocalDate.now()
         val cycle = PlaybackEngine.buildCycle(photos, day,
-            CycleSettings(prefs.getInt("recentCount",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50)),
+            CycleSettings(prefs.getInt("roundSize",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50)),
             playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
             hashes, { qualityScores[it.id] }, priorityIds)
         deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
         burstHeld = cycle.burstHeld
-        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet(), cycle.excluded)
+        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("roundSize",300)).map { it.id }.toSet(), cycle.excluded)
         preloader.clear()
     }
     private fun checkAlbumCount() {
@@ -848,7 +848,7 @@ class MainActivity : Activity() {
         val text = mapOf(
             "holidayTheme" to prefs.getString("holidayTheme", "off").orEmpty(),
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
-            "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
+            "roundSize" to prefs.getInt("roundSize",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
@@ -886,7 +886,7 @@ class MainActivity : Activity() {
                 "Playback paused: $playbackPaused",
                 "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
-                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
+                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; ${prefs.getInt("roundSize",300)} photos per round; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
                 "Collages since start: ${chooser.collageReport()}",
@@ -946,10 +946,10 @@ class MainActivity : Activity() {
                     val brightness = fields["brightness"]?.toIntOrNull() ?: prefs.getInt("brightness",55)
                     require(brightness in 5..100) { "Choose 5 to 100 percent brightness." }
                     val changingMix=fields["mixSettings"] == "1"
-                    val recentCount=if(changingMix) fields["recentCount"]?.toIntOrNull() ?: error("Recent count required") else prefs.getInt("recentCount",300)
+                    val roundSize=if(changingMix) fields["roundSize"]?.toIntOrNull() ?: error("Photos per round required") else prefs.getInt("roundSize",300)
                     val memoryDays=if(changingMix) fields["memoryDays"]?.toIntOrNull() ?: error("Memory window required") else prefs.getInt("memoryDays",14)
                     val recentPercent=if(changingMix) fields["recentPercent"]?.toIntOrNull() ?: error("Mix required") else prefs.getInt("recentPercent",50)
-                    require(recentCount in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
+                    require(roundSize in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
                     val collageEvery=if(changingMix) fields["collageEvery"]?.toIntOrNull() ?: prefs.getInt("collageEvery",20) else prefs.getInt("collageEvery",20)
                     val collageSource=if(changingMix) fields["collageSource"]?.takeIf { it in setOf(CollageThemeSelection.SOURCE_DAY,CollageThemeSelection.SOURCE_MIXED) }
                         ?: CollageThemeSelection.SOURCE_DAY else prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty()
@@ -967,7 +967,7 @@ class MainActivity : Activity() {
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
-                    if(changingMix) edit.putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
+                    if(changingMix) edit.putInt("roundSize",roundSize).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).putString("collageSource",collageSource)
                         .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()
