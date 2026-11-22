@@ -19,6 +19,7 @@ web/dist/
 .idea/vcs.xml
 
 # Private frame/account data and local probe artifacts
+/local/
 **/__pycache__/
 *.pyc
 **/*cookies*.txt

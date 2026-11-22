@@ -45,6 +45,8 @@
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Add `tools/album_dates.py`, which reads a shared album's capture times (times only, no ids or addresses) so a
+  maintainer can run the playback simulation on a real album's shape; see docs/tuning-the-strategy.md.
 - Apply the soft-photo gate to every slide, not only collages, with a "Skip blurry photos" choice (off, only
   very blurry at 12%, blurry at 25% which is the default, anything noticeably soft at 40%). Photos it refuses are not drawn for a round, a soft photo that
   reaches the front is passed over, and Diagnostics shows sharpness bands and the sharpness of the photo on
