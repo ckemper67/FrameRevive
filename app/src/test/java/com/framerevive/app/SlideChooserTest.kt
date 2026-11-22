@@ -156,4 +156,69 @@ class SlideChooserTest {
         chooser.next(context(), null)
         assertEquals("1 shown, 1 skipped for want of eligible ready photos, 0 from the other source", chooser.collageReport())
     }
+
+    @Test fun aPreviewLeavesTheQueueTheCadenceAndTheCountersAlone() {
+        val chooser = chooser(singles + group)
+        chooser.showSingles(3)
+        val before = chooser.playlist
+        val preview = chooser.previewCollage(context(), 3)
+        assertEquals(3, preview.photos.size)
+        assertTrue(preview.photos.all { it.id.startsWith("d") })
+        assertEquals(before, chooser.playlist)
+        assertEquals(0, chooser.index)
+        assertEquals(3, chooser.cadence.singles)
+        assertEquals(0, chooser.collagesChosen)
+        assertEquals(0, chooser.collageSkips)
+        assertTrue(preview.notes.single().contains("pool=6 cached=6 fitted=3"))
+    }
+
+    @Test fun aPreviewFollowsTheSameEligibilityAsPlayback() {
+        val chooser = chooser(singles + group)
+        chooser.claim(listOf("d0", "d1", "d2", "d3"), HashMap(), 1L)
+        val preview = chooser.previewCollage(context(), 2)
+        assertEquals(setOf("d4", "d5"), preview.photos.map { it.id }.toSet())
+    }
+
+    @Test fun aPreviewWithNothingReadyReportsWhatItFound() {
+        val preview = chooser(singles + group).previewCollage(context(cached = emptySet(), usable = false), 2)
+        assertTrue(preview.photos.isEmpty())
+        assertEquals(null, preview.theme)
+        assertEquals(2, preview.notes.size)
+    }
+
+    @Test fun thePoolToDownloadForAPreviewIsAtMostSixPhotosFromTheChosenDate() {
+        val pool = chooser(singles + group).previewPool(context(cached = emptySet()), 2)
+        assertEquals(6, pool.size)
+        assertTrue(pool.all { it.id.startsWith("d") })
+    }
+
+    @Test fun aNewPresentationIsAClassInTheList() {
+        val fixed = object : Presentation {
+            override val mode = SlideMode.PAIR
+            override fun due(ctx: SlideContext, cadence: CollageCadence) = true
+            override fun propose(ctx: SlideContext, queue: SlideQueue, avoid: Set<String>, last: FrameSlide?) = queue.upcoming.takeLast(2)
+        }
+        val chooser = SlideChooser(Random(1), listOf(fixed)).apply { load(singles, singles.map { it.id }.toSet()) }
+        val slide = chooser.next(context(photos = singles, collages = false, pairs = true), null)!!
+        assertEquals(SlideMode.PAIR, slide.mode)
+        assertEquals(listOf("s18", "s19"), slide.photos.map { it.id })
+        assertTrue("what it took leaves the queue", chooser.playlist.none { it.id == "s19" })
+    }
+
+    @Test fun aPresentationThatCannotMakeASlideLeavesItToTheNextOne() {
+        val never = object : Presentation {
+            override val mode = SlideMode.PAIR
+            override fun due(ctx: SlideContext, cadence: CollageCadence) = true
+            override fun propose(ctx: SlideContext, queue: SlideQueue, avoid: Set<String>, last: FrameSlide?): List<FramePhoto>? = null
+        }
+        val chooser = SlideChooser(Random(1), listOf(never)).apply { load(singles, singles.map { it.id }.toSet()) }
+        assertEquals("s0", chooser.next(context(photos = singles, collages = false), null)!!.photos.single().id)
+    }
+
+    @Test fun aSingleKeepsItsPhotoInTheCycleAsPlayed() {
+        val chooser = chooser(singles)
+        chooser.next(context(photos = singles, collages = false), null)
+        assertEquals(1, chooser.index)
+        assertEquals(singles.size, chooser.playlist.size)
+    }
 }

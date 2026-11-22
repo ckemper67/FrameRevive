@@ -67,14 +67,9 @@ class MainActivity : Activity() {
             }
         }.apply { isDaemon = true; name = "frame-watchdog"; start() }
     }
-    /** Owns the queue and the choice of presentation; these are views of its state while the rest moves over. */
+    /** Owns the queue and the choice of presentation. */
     private val chooser = SlideChooser()
     private val collageCadence get() = chooser.cadence
-    private var collageDay by chooser::collageDay
-    private var collageTheme by chooser::collageTheme
-    private var lastCollageTheme by chooser::lastCollageTheme
-    private var lastCollageDay by chooser::lastCollageDay
-    private var recentIds by chooser::recentIds
     private val placeholder by lazy { android.graphics.Bitmap.createBitmap(8,8,android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF20242B.toInt()) } }
     private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
     /** Consecutive download failures and the time each photo may be tried again, with jittered backoff. */
@@ -716,7 +711,7 @@ class MainActivity : Activity() {
                 handler.post {
                     if (!closed) {
                         // Refresh history URLs and remove deleted items while retaining navigation within this album.
-                        if (changingAlbum) { history.clear(); collageCadence.reset(); collageDay=emptyList(); lastCollageDay=null; collageTheme=null } else {
+                        if (changingAlbum) { history.clear(); chooser.resetForAlbum() } else {
                             val updated=fresh.associateBy { it.id }
                             history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let { FrameSlide(it, old.mode) } }
                         }
@@ -726,7 +721,7 @@ class MainActivity : Activity() {
                         prefs.edit().putStringSet("priorityIds", priorityIds.toSet()).apply()
                         val hasAdditions = priorityIds.isNotEmpty()
                         flushQuality()
-                        collageDay = emptyList()
+                        chooser.collageDay = emptyList()
                         albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader
                         photos = fresh; photosByRecency = byRecency; rebuild(); planPreloads()
                         setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
@@ -862,7 +857,7 @@ class MainActivity : Activity() {
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
             "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
-                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen, dates " +
+                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(chooser.lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen, dates " +
                     lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo") +
                 " · Since start: ${chooser.collageReport()}"),
             "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
@@ -1000,39 +995,24 @@ class MainActivity : Activity() {
                         handler.post {
                             try {
                                 if(!active || closed || sleeping) return@post
-                                val d=resources.displayMetrics
-                                val ready:(FramePhoto)->Boolean = { it.id in cachedIds }
-                                val quality:(FramePhoto)->Boolean = { usableForCollage(it) }
-                                val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
-                                fun poolFor(theme:CollageTheme):List<FramePhoto> = when(theme) {
-                                    CollageTheme.DAY -> CollageThemeSelection.bestDay(photos,count,cachedIds,emptySet(),setOfNotNull(lastCollageDay))
-                                    CollageTheme.RECENT -> photos.filter { it.id in recentIds }
-                                }
-                                val notes=mutableListOf<String>()
-                                for(theme in listOf(source,CollageThemeSelection.other(source))) {
-                                    val all=poolFor(theme)
-                                    val pool=all.filter(ready)
-                                    val fitting=CollageSelection.choose(count,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,emptySet(),hashes=hashes)
-                                    notes += "$theme pool=${all.size} cached=${pool.size} fitted=${fitting.size}"
-                                    if(fitting.size in 2..4) {
-                                        handler.removeCallbacks(advance)
-                                        lastCollageTheme=theme
-                                        if(theme==CollageTheme.DAY)                                        lastCollageDay=fitting.first().date()
-                                        showSlide(FrameSlide(fitting),fromHistory=true)
-                                        previewCollageCount=2+(previewCollageCount-1)%3
-                                        prefs.edit().putString("previewNote", notes.joinToString("; ") + " -> ${theme.name.lowercase()} ${fitting.size}").apply()
-                                        return@post
-                                    }
+                                val ctx=slideContext()
+                                val plan=chooser.previewCollage(ctx,count)
+                                if(plan.photos.size in 2..4) {
+                                    handler.removeCallbacks(advance)
+                                    showSlide(FrameSlide(plan.photos),fromHistory=true)
+                                    previewCollageCount=2+(previewCollageCount-1)%3
+                                    prefs.edit().putString("previewNote", plan.notes.joinToString("; ") + " -> ${plan.theme?.name?.lowercase()} ${plan.photos.size}").apply()
+                                    return@post
                                 }
                                 if(tries > 0) {
-                                    preloader.plan(poolFor(source).take(6))
+                                    preloader.plan(chooser.previewPool(ctx,count))
                                     handler.postDelayed({ attempt(tries-1) },3000)
                                 }
-                                prefs.edit().putString("previewNote", notes.joinToString("; ") + " tries=$tries").apply()
+                                prefs.edit().putString("previewNote", plan.notes.joinToString("; ") + " tries=$tries").apply()
                             } catch (e: Exception) { prefs.edit().putString("previewNote", "error: ${e.message}").apply() }
                         }
                     }
-                    preloader.plan(CollageThemeSelection.bestDay(photos,count,cachedIds,emptySet(),setOfNotNull(lastCollageDay)).take(6))
+                    preloader.plan(chooser.previewPool(slideContext(),count))
                     attempt(12)
                     "Choosing a $count-photo collage. Same-day photos may need up to half a minute to download."
                 }

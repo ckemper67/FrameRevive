@@ -179,6 +179,18 @@ often it triggers.
 - Delete the duplicate `poolFor`; Preview calls the engine with a forced presentation.
 - Back/forward history keeps storing photo references (`FrameSlide.id`), so it is unaffected.
 
+Progress (branch `curation-phase-3`): the `Presentation` interface (`due`, `propose`, `chosen`) exists with
+`SinglePresentation`, `PairPresentation` and `CollagePresentation`; `SlideChooser` asks them in order and takes
+extra presentations in its constructor, so a new layout is one class (tested with a fake). The simulation mix is
+identical to Phase 2 (1831 singles, 455 pairs, 114 collages, same repeats and coverage). The activity's copy of
+`poolFor` is gone: Preview calls `SlideChooser.previewCollage`, which shares the pool, eligibility and
+letterboxed fallback with playback and leaves the queue, cadence, counters and history alone. Preview
+previously skipped the letterboxed fallback, so it could show nothing where playback shows a collage; that is
+fixed by the shared path. `preloadPlan` plays the part of `peek()`: it names the photos the next slide needs,
+but it memoizes the chosen collage date on purpose (the photos must download before the collage falls due), so
+it is not side-effect free as first designed. Not done: `FrameSlide.mode` is still the `SlideMode` enum, not a
+presentation id; `MainActivity` still builds the `SlideContext` and calls `cachedSize`/`usableForCollage`.
+
 Done when the simulation's presentation mix matches Phase 2 within tolerance, `MainActivity` has no
 selection branches, and live and preview share one code path.
 
