@@ -10,7 +10,7 @@ class SlideContext(
     val hashes: Map<String, Long>, val width: Int, val height: Int,
     val collages: Boolean, val collageEvery: Int, val collageSource: String, val pairs: Boolean,
     val seen: Map<String, PlayRecord> = emptyMap(),
-    /** Whether a photo is sharp enough to show; unscored photos pass. */
+    /** Whether a photo is sharp enough to show; unscored photos pass. Called per photo, so it must not read preferences or files. */
     val sharp: (FramePhoto) -> Boolean = { true })
 
 /** The queue as a presentation sees it: what is coming, what it may not take, and how to take it. */

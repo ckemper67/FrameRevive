@@ -337,7 +337,7 @@ class MainActivity : Activity() {
             CycleSettings(prefs.getInt("roundSize",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50),
                 Recency.of(prefs.getString("recencyBias",null))),
             playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
-            hashes, { qualityScores[it.id] }, priorityIds, keep = ::sharpEnough)
+            hashes, { qualityScores[it.id] }, priorityIds, keep = sharpnessGate())
         deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
@@ -551,8 +551,21 @@ class MainActivity : Activity() {
     }
     /** Cached, and not excluded by the quality gate, for collage use. */
     private fun sharpness() = Sharpness.of(prefs.getString("skipBlurry",null))
-    private fun sharpEnough(p: FramePhoto): Boolean = PhotoQuality.acceptable(qualityScores[p.id], qualityMedian(), sharpness().fraction)
-    private fun usableForCollage(p: FramePhoto): Boolean = p.id in cachedIds && sharpEnough(p)
+    /**
+     * The sharpness test as the settings and scores stand now. The setting and the album median are read once, here,
+     * not per photo: building a round applies this to every photo in the album on the UI thread, and a preference
+     * lookup per photo made that take hundreds of milliseconds on the frame.
+     */
+    private fun sharpnessGate(): (FramePhoto) -> Boolean {
+        val fraction = sharpness().fraction
+        val median = qualityMedian()
+        return { p -> PhotoQuality.acceptable(qualityScores[p.id], median, fraction) }
+    }
+    private fun softCount(): Int {
+        val fraction = sharpness().fraction
+        val median = qualityMedian()
+        return qualityScores.count { !PhotoQuality.acceptable(it.value, median, fraction) }
+    }
     /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
     private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
         if (!cached(p).exists()) null else photoSize(p)
@@ -588,9 +601,10 @@ class MainActivity : Activity() {
     }
     private fun slideContext(): SlideContext {
         val d=resources.displayMetrics
-        return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,::usableForCollage,hashes,d.widthPixels,d.heightPixels,
+        val gate=sharpnessGate()
+        return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,{ p -> p.id in cachedIds && gate(p) },hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
-            prefs.getBoolean("pairs",true),playHistory,::sharpEnough)
+            prefs.getBoolean("pairs",true),playHistory,gate)
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
@@ -899,7 +913,7 @@ class MainActivity : Activity() {
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",
                 "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
-                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${qualityScores.count { !PhotoQuality.acceptable(it.value, qualityMedian(), sharpness().fraction) }} kept out of every slide (skip blurry: ${sharpness().id})",
+                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${softCount()} kept out of every slide (skip blurry: ${sharpness().id})",
                 "Sharpness, share of typical: ${PhotoQuality.bands(qualityScores.values, qualityMedian())?.let { b -> listOf("<12%","12-25%","25-40%","40-60%","60%+").zip(b).joinToString(" ") { (label, n) -> "$label=$n" } } ?: "not enough photos scored yet"}",
                 "Sharpness on screen: ${lastSlide?.photos?.joinToString(", ") { p -> PhotoQuality.relative(qualityScores[p.id], qualityMedian())?.let { "${(it * 100).toInt()}% of typical" } ?: "not scored" } ?: "nothing shown yet"}",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",

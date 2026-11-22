@@ -23,6 +23,7 @@ object PlaybackEngine {
     fun buildCycle(photos: List<FramePhoto>, today: LocalDate, settings: CycleSettings, seen: Map<String, PlayRecord>,
                    byRecency: List<FramePhoto>, seasonal: List<FramePhoto>?, hashes: Map<String, Long>,
                    quality: (FramePhoto) -> Float?, priorityIds: Set<String>, random: Random = Random.Default,
+                   /** Called for every photo in the album on the UI thread: resolve settings first, never read preferences or files in here. */
                    keep: (FramePhoto) -> Boolean = { true }): CycleBuild {
         val started = System.nanoTime()
         // Photos known to be too soft are not candidates, so they cannot fill slots that would then be skipped.

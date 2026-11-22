@@ -71,7 +71,7 @@ class PhotoDeckTest {
     }
 
     @Test fun aWeightedRoundHasTheRequestedSizeAndNoDuplicates() {
-        val round = PhotoDeck.deck(pool(500), emptyMap(), 120, Random(3), weight = { 1.0 + it.takenMs % 7 })
+        val round = PhotoDeck.deck(pool(500), emptyMap(), 120, Random(3), weight = { (1.0 + it.takenMs % 7) / 7.0 })
         assertEquals(120, round.size)
         assertEquals(120, round.map { it.id }.distinct().size)
     }
@@ -92,8 +92,8 @@ class PhotoDeckTest {
     }
 
     @Test fun aWeightedDrawIsReproducibleForOneSeed() {
-        val a = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { 1.0 + it.takenMs % 5 })
-        val b = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { 1.0 + it.takenMs % 5 })
+        val a = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { (1.0 + it.takenMs % 5) / 5.0 })
+        val b = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { (1.0 + it.takenMs % 5) / 5.0 })
         assertEquals(a, b)
     }
 
@@ -101,5 +101,29 @@ class PhotoDeckTest {
         val newest = (1..400).map { FramePhoto("p$it", "u", (401 - it) * 1000L) }
         val round = PhotoDeck.deck(newest, emptyMap(), 10, Random(1))
         assertTrue("only the newest ${10 * PhotoDeck.WINDOW_MULTIPLIER} are candidates", round.all { it.takenMs > (400 - 10 * PhotoDeck.WINDOW_MULTIPLIER) * 1000L })
+    }
+
+    @Test fun aLargeShareOfThePoolIsDrawnByTheExactMethodAndStillFavoursHeavyPhotos() {
+        val album = pool(60)
+        val weight: (FramePhoto) -> Double = { if (it.takenMs > 30_000L) 1.0 else 0.1 }
+        val picks = (1..60).flatMap { PhotoDeck.deck(album, emptyMap(), 30, Random(it), weight = weight) }
+        assertTrue("every round is full and unique", picks.chunked(30).all { r -> r.size == 30 && r.map { it.id }.distinct().size == 30 })
+        val heavy = picks.count { it.takenMs > 30_000L }
+        assertTrue("heavy photos dominate: $heavy of ${picks.size}", heavy > picks.size * 0.6)
+    }
+
+    @Test fun weightsTooSmallForRejectionStillGiveAFullRound() {
+        val round = PhotoDeck.deck(pool(1000), emptyMap(), 100, Random(9), weight = { 1e-12 })
+        assertEquals(100, round.size)
+        assertEquals(100, round.map { it.id }.distinct().size)
+    }
+
+    @Test fun aSmallDrawFromALargePoolFollowsTheWeightsInProportion() {
+        // Heavy photos are four times as likely: of 100 picks from 2,000 photos in equal halves, about 80 are heavy.
+        val album = pool(2000)
+        val weight: (FramePhoto) -> Double = { if (it.takenMs % 2000L == 0L) 1.0 else 0.25 }
+        val heavyShare = (1..30).flatMap { PhotoDeck.deck(album, emptyMap(), 100, Random(it), weight = weight) }
+            .let { picks -> picks.count { it.takenMs % 2000L == 0L } / picks.size.toDouble() }
+        assertEquals("expected 0.5 / (0.5 + 0.125)", 0.8, heavyShare, 0.05)
     }
 }

@@ -61,8 +61,8 @@ object PhotoDeck {
      * [byRecency] must already be sorted newest capture first. Building that order here cost 650 ms on the
      * frame's UI thread for a 15,479-photo album, so it is prepared once when the album is read.
      *
-     * With a [weight], the photos not yet shown are drawn by that weight from the whole pool instead of from
-     * the newest [window]; see [Recency]. Shown photos still return least recently shown first.
+     * With a [weight] (0 to 1), the photos not yet shown are drawn by that weight from the whole pool instead
+     * of from the newest [window]; see [Recency]. Shown photos still return least recently shown first.
      */
     fun deck(byRecency: List<FramePhoto>, seen: Map<String, PlayRecord>, count: Int, random: Random = Random.Default,
              window: Int = count * WINDOW_MULTIPLIER, weight: ((FramePhoto) -> Double)? = null): List<FramePhoto> {
@@ -80,14 +80,50 @@ object PhotoDeck {
     }
 
     /**
-     * [count] photos drawn without replacement, each with a chance in proportion to its weight (Efraimidis and
-     * Spirakis: give each photo the key ln(u)/weight and keep the largest). The result is shuffled, so the
-     * order carries no trace of the weights.
+     * [count] photos drawn without replacement, each with a chance in proportion to its [weight], which must
+     * lie between 0 and 1 (larger values count as 1). The result is shuffled, so its order carries no trace of
+     * the weights.
+     *
+     * A small draw from a large pool is made by rejection: try a random photo, keep it with probability equal
+     * to its weight, skip photos already taken. That looks at a few thousand photos rather than all 15,000,
+     * which matters because a round is built on the UI thread. A draw that takes a large share of the pool, or
+     * that rejection cannot finish because the weights are tiny, is completed by [drawByKeys].
      */
     private fun draw(pool: List<FramePhoto>, count: Int, weight: (FramePhoto) -> Double, random: Random): List<FramePhoto> {
-        if (pool.size <= count) return pool.shuffled(random)
-        val keys = DoubleArray(pool.size) { i -> kotlin.math.ln(random.nextDouble().coerceAtLeast(1e-12)) / weight(pool[i]).coerceAtLeast(1e-9) }
-        return pool.indices.sortedByDescending { keys[it] }.take(count).map { pool[it] }.shuffled(random)
+        val n = pool.size
+        if (n <= count) return pool.shuffled(random)
+        if (count * 3 > n) return drawByKeys(pool, count, weight, random).shuffled(random)
+        val taken = BooleanArray(n)
+        val picked = ArrayList<FramePhoto>(count)
+        var trials = 0
+        val limit = 64 * count + 1000
+        while (picked.size < count && trials < limit) {
+            trials++
+            val i = random.nextInt(n)
+            if (taken[i]) continue
+            if (random.nextDouble() < weight(pool[i]).coerceIn(0.0, 1.0)) { taken[i] = true; picked += pool[i] }
+        }
+        if (picked.size < count) {
+            val rest = pool.filterIndexed { i, _ -> !taken[i] }
+            picked += drawByKeys(rest, count - picked.size, weight, random)
+        }
+        return picked.shuffled(random)
+    }
+
+    /**
+     * The exact method: give each photo the key ln(u)/weight and keep the [count] largest (Efraimidis and
+     * Spirakis). It evaluates every photo and sorts primitive keys, so it is the fallback, not the first choice.
+     */
+    private fun drawByKeys(pool: List<FramePhoto>, count: Int, weight: (FramePhoto) -> Double, random: Random): List<FramePhoto> {
+        if (pool.size <= count) return pool
+        val keys = DoubleArray(pool.size) { i ->
+            kotlin.math.ln(random.nextDouble().coerceAtLeast(1e-12)) / weight(pool[i]).coerceIn(0.0, 1.0).coerceAtLeast(1e-9)
+        }
+        val threshold = keys.copyOf().also { it.sort() }[pool.size - count]
+        val out = ArrayList<FramePhoto>(count)
+        for (i in keys.indices) if (keys[i] > threshold) out += pool[i]
+        for (i in keys.indices) if (out.size < count && keys[i] == threshold) out += pool[i]
+        return out
     }
 
     fun stats(photos: List<FramePhoto>, seen: Map<String, PlayRecord>): DeckStats {
