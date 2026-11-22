@@ -41,37 +41,47 @@ object PhotoSelection {
         }
     }
 
-    // Equal turns for the deck and a +/-14-day seasonal pool.
-    // Each pool is shuffled without replacement; dates are recalculated each day.
+    /** Longest cycle a playlist may reach, however extreme the slider. */
+    const val MAX_CYCLE = 20000
+
+    /**
+     * One cycle: a deck of recent photos and a deck of seasonal memories, spread evenly through each other.
+     * Both pools are decks, so within a cycle no photo plays twice. The slider sets how many memory slots a
+     * cycle would like; a pool too small to fill them contributes only what it has, and the shortfall goes
+     * back to the recent deck instead of replaying the same few memories to hold the ratio.
+     */
     fun playlist(photos: List<FramePhoto>, today: LocalDate, random: Random = Random.Default, recentCount: Int = 300, memoryDays: Int = 14, recentPercent: Int = 50,
                  seen: Map<String, PlayRecord> = emptyMap(), byRecency: List<FramePhoto> = photos.sortedByDescending { it.takenMs },
                  seasonalCandidates: List<FramePhoto>? = null): List<FramePhoto> {
         require(recentCount in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
         if (photos.isEmpty()) return emptyList()
-        // Seasonal candidates are the same photos as before; the pools are then built so a photo belongs to
-        // one of them, which keeps the ratio exact.
         val seasonal = seasonalCandidates ?: seasonal(photos, today, memoryDays)
-        // Built whenever seasonal photos exist; the 0% and 100% endpoints then choose one pool wholesale.
-        val memories = seasonal.shuffled(random)
         // Seasonal photos belong to the memories slot alone: at 100% the owner has asked for no memories, and
         // letting them leak into the deck would make the slider mean nothing.
         val memoryIds = seasonal.map { it.id }.toHashSet()
         // The recent pool is a deck, not the newest slice: photos never shown, then the ones shown longest
         // ago, so a large album is covered instead of circling its newest few hundred.
-        val latest = PhotoDeck.deck(if (memoryIds.isEmpty()) byRecency else byRecency.filter { it.id !in memoryIds }, seen, recentCount, random)
-        if (memories.isEmpty() || recentPercent == 100) return latest
-        if (recentPercent == 0) return memories
-        // Ensure each pool has a full turn at ordinary ratios; cap very large cycles.
-        val turns = maxOf(kotlin.math.ceil(latest.size * 100.0 / recentPercent).toInt(),
-            kotlin.math.ceil(memories.size * 100.0 / (100-recentPercent)).toInt()).coerceAtMost(20000)
-        val result = ArrayList<FramePhoto>(turns)
-        var balance = 100-recentPercent
-        var recentIndex = 0; var memoryIndex = 0
-        repeat(turns) {
-            balance += recentPercent
-            if (balance >= 100) { balance -= 100; result.add(latest[recentIndex++ % latest.size]) }
-            else result.add(memories[memoryIndex++ % memories.size])
+        val pool = if (memoryIds.isEmpty()) byRecency else byRecency.filter { it.id !in memoryIds }
+        if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, recentCount, random)
+        val memoryOrder = seasonal.sortedByDescending { it.takenMs }
+        if (recentPercent == 0) return PhotoDeck.deck(memoryOrder, seen, memoryOrder.size, random)
+        val wanted = Math.round(recentCount * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - recentCount)
+        val memories = PhotoDeck.deck(memoryOrder, seen, wanted, random)
+        val latest = PhotoDeck.deck(pool, seen, (recentCount + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random)
+        return interleave(latest, memories)
+    }
+
+    /** Spreads [memories] evenly through [latest], each in its own order and each used once. */
+    private fun interleave(latest: List<FramePhoto>, memories: List<FramePhoto>): List<FramePhoto> {
+        val total = latest.size + memories.size
+        val out = ArrayList<FramePhoto>(total)
+        var balance = 0; var recent = 0; var memory = 0
+        repeat(total) {
+            balance += memories.size
+            if (balance >= total && memory < memories.size) { balance -= total; out.add(memories[memory++]) }
+            else if (recent < latest.size) out.add(latest[recent++])
+            else out.add(memories[memory++])
         }
-        return result
+        return out
     }
 }

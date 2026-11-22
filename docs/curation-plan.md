@@ -113,6 +113,27 @@ Risk: extraction changes behavior; the characterization tests guard it.
 Done when the simulation shows zero within-cycle repeats at default settings and a test fails if the modulo
 wrap returns.
 
+Result (branch `curation-phase-1`): `PhotoSelection.playlist` builds the memories as a deck as well. The
+slider sets a quota of memory slots (`recentCount * (100 - p) / p`); the pool fills what it can, the shortfall
+is added to the recent deck, and the two are interleaved evenly with no wrap. Same album and seed as the
+baseline, playlist level:
+
+| Cycle | Slots | Seasonal slots | Repeated slots (was) | Max plays | Coverage (was) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 600 | 40 | 0 (247) | 1 (8) | 4% (2%) |
+| 3 | 587 | 40 | 0 (246) | 1 (8) | 11% (6%) |
+| 5 | 589 | 40 | 0 (248) | 1 (8) | 19% (10%) |
+
+At slide level (2,400 slides, pairs on) repeats fall from 1,089 to 287 and coverage rises from 11% to 17%. The
+287 that remain come from collages, which still draw from outside the queue (Phase 2). Memories are now 40
+of about 600 slots (under 7%) rather than half, because 40 photos cannot fill a 50% share without replaying
+them; this is the intended trade, and it means the slider only moves the memory share when the pool is large.
+The burst share per cycle is about 10% (it was 5-7%), because more of each cycle now comes from the recent
+deck; Phase 2 reviews it.
+
+Three tests in `PhotoSelectionTest` and `PhotoMixTest` asserted the wrap (300 plays of one memory, 30 memory
+slots from 3 photos) and were rewritten to the new rules.
+
 ## Phase 2: one gate for every photo
 
 - All presentations draw from the engine's candidate list; `claim(photos)` is the only place plays are

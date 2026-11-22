@@ -42,8 +42,8 @@ class PhotoSelectionTest {
         val recent = (0..299).map { photo("recent$it", "2026-09-01") }
         val memory = photo("memoryUpload", "2008-10-21").copy(discoveredMs = Long.MAX_VALUE)
         val result = PhotoSelection.playlist(recent + memory,LocalDate.parse("2026-10-20"),Random(42))
-        assertTrue(result.filterIndexed { i,_ -> i % 2 == 1 }.all { it.id == memory.id })
-        assertEquals(recent.map { it.id }.toSet(),result.filterIndexed { i,_ -> i % 2 == 0 }.map { it.id }.toSet())
+        assertEquals("one memory is one slot, not three hundred",1,result.count { it.id == memory.id })
+        assertEquals(recent.map { it.id }.toSet(),result.filter { it.id != memory.id }.map { it.id }.toSet())
     }
     @Test fun oldAlbumStillDisplaysNewestAvailable() {
         val photos = listOf(photo("old", "2019-04-01"), photo("new", "2020-05-01"))
@@ -52,12 +52,12 @@ class PhotoSelectionTest {
     @Test fun mixesNewestWithSeasonalMemories() {
         val latest = (0..299).map { photo("new$it", "2026-08-01") }
         val result = PhotoSelection.playlist(latest + photo("memory", "2010-10-21") + photo("other", "2010-03-01"), LocalDate.parse("2026-10-20"), Random(42))
-        assertEquals(600, result.size)
-        assertTrue(result.filterIndexed { i, _ -> i % 2 == 1 }.all { it.id == "memory" })
-        // The even slots are the deck, which now reaches the whole album - including "other", an old photo
-        // that is not in season and that the newest-300 rule used to exclude.
-        assertEquals(300, result.filterIndexed { i, _ -> i % 2 == 0 }.map { it.id }.toSet().size)
-        assertTrue("a seasonal photo must not appear in the deck", result.filterIndexed { i, _ -> i % 2 == 1 }.all { it.id != "other" })
+        // The memory pool is one photo, so it fills one slot and the shortfall goes to the deck, which reaches
+        // the whole album - including "other", an old photo that is not in season.
+        assertEquals(302, result.size)
+        assertEquals(1, result.count { it.id == "memory" })
+        assertEquals("nothing plays twice", 302, result.map { it.id }.distinct().size)
+        assertTrue("a seasonal photo comes from the memories slot, not the deck", result.count { it.id == "other" } <= 1)
     }
     @Test fun seasonalPoolExcludesCurrentYear() {
         val photos = (0..300).map { photo("p$it", "2026-10-20") }

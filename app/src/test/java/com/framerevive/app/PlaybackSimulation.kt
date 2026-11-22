@@ -140,6 +140,7 @@ class PlaybackSimulation {
                 "seasonalSlots=${r.seasonalSlots} burstShare=${"%.3f".format(r.burstShare)} coverage=${"%.3f".format(r.coverage)} years=${r.years}")
         }
         reports.forEach { assertTrue("every cycle plays something", it.cycleLength > 0) }
+        reports.forEach { assertEquals("no photo plays twice within a cycle", 0, it.repeatedSlots) }
         assertTrue("coverage never goes backwards", reports.zipWithNext().all { (a, b) -> b.coverage >= a.coverage })
     }
 

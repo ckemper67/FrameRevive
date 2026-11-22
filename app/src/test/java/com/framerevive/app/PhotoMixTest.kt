@@ -23,13 +23,49 @@ class PhotoMixTest {
         assertEquals(1,fallback.size)
         assertTrue(fallback.first().id in photos.map { it.id })
     }
-    @Test fun weightedMixKeepsTheRequestedBalanceAndVisitsRecentPool() {
-        val recent=(1..10).map { p("r$it","2026-09-01") }
-        val memories=(1..3).map { p("m$it","2010-10-20") }
-        val result=PhotoSelection.playlist(recent+memories,LocalDate.parse("2026-10-20"),Random(1),10,14,25)
-        assertEquals(40,result.size)
+    private val today=LocalDate.parse("2026-10-20")
+    @Test fun aFullMemoryPoolKeepsTheRequestedBalance() {
+        val recent=(1..30).map { p("r$it","2026-09-01") }
+        val memories=(1..12).map { p("m$it","2010-10-20") }
+        val result=PhotoSelection.playlist(recent+memories,today,Random(1),10,14,50)
+        assertEquals(20,result.size)
         assertEquals(10,result.count { it.id.startsWith("r") })
-        assertEquals(30,result.count { it.id.startsWith("m") })
-        assertEquals(10,result.filter { it.id.startsWith("r") }.distinctBy { it.id }.size)
+        assertEquals(10,result.count { it.id.startsWith("m") })
+        assertEquals("a cycle never plays a photo twice",20,result.map { it.id }.distinct().size)
+    }
+    @Test fun aSmallMemoryPoolStopsContributingAndTheShortfallGoesToRecent() {
+        val recent=(1..30).map { p("r$it","2026-09-01") }
+        val memories=(1..3).map { p("m$it","2010-10-20") }
+        // 50% of a 10-photo recent deck wants 10 memory slots; only 3 memories exist, so 7 slots move to recent.
+        val result=PhotoSelection.playlist(recent+memories,today,Random(1),10,14,50)
+        assertEquals(20,result.size)
+        assertEquals(3,result.count { it.id.startsWith("m") })
+        assertEquals(17,result.count { it.id.startsWith("r") })
+        assertEquals(20,result.map { it.id }.distinct().size)
+    }
+    @Test fun noMemoryPhotoPlaysTwiceInACycleAtAnySlider() {
+        val recent=(1..400).map { p("r$it","2026-09-01") }
+        val memories=(1..40).map { p("m$it","2010-10-${10+it%10}") }
+        for(percent in listOf(1,10,25,50,75,90,99)) {
+            val ids=PhotoSelection.playlist(recent+memories,today,Random(percent),50,14,percent).map { it.id }
+            assertEquals("slider $percent",ids.size,ids.distinct().size)
+            assertEquals("slider $percent keeps every memory",setOf<String>(),ids.filter { it.startsWith("m") }.toSet()-memories.map { it.id }.toSet())
+        }
+    }
+    @Test fun memoriesAreSpreadThroughTheCycleNotBunched() {
+        val recent=(1..100).map { p("r$it","2026-09-01") }
+        val memories=(1..20).map { p("m$it","2010-10-20") }
+        val result=PhotoSelection.playlist(recent+memories,today,Random(2),100,14,83)
+        val positions=result.withIndex().filter { it.value.id.startsWith("m") }.map { it.index }
+        assertEquals(20,positions.size)
+        assertTrue("first and last memory sit far apart",positions.last()-positions.first() > result.size/2)
+    }
+    @Test fun aShownMemoryWaitsForTheOnesNotYetShown() {
+        val recent=(1..30).map { p("r$it","2026-09-01") }
+        val memories=(1..6).map { p("m$it","2010-10-20") }
+        val seen=mapOf("m1" to PlayRecord(10,1),"m2" to PlayRecord(20,1),"m3" to PlayRecord(30,1))
+        // Quota is 3 memory slots (50% of a 3-photo recent deck): the three unseen memories take them.
+        val result=PhotoSelection.playlist(recent+memories,today,Random(1),3,14,50,seen)
+        assertEquals(setOf("m4","m5","m6"),result.filter { it.id.startsWith("m") }.map { it.id }.toSet())
     }
 }
