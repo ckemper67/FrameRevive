@@ -98,6 +98,58 @@ class RealAlbumSimulation {
         assertTrue(albumLine(photos).contains("1500 photos"))
     }
 
+    /** A mix of shapes like a phone album: mostly landscape, a third portrait, a few squares. */
+    private fun shapeOf(p: FramePhoto) = when (p.id.hashCode().mod(20)) {
+        in 0..11 -> CollageLayout.Size(1200, 800)
+        in 12..18 -> CollageLayout.Size(800, 1200)
+        else -> CollageLayout.Size(1000, 1000)
+    }
+
+    /**
+     * Plays [draws] collages from one source of candidates, as the frame would: each aims for four photos and settles for
+     * fewer when four do not tile, each draw avoids the previous collage's day and counts as shown, and the shape
+     * fitting picks the combination. Returns one line.
+     */
+    private fun collageReport(label: String, photos: List<FramePhoto>, draws: Int, lookahead: Int = CollageSelection.LOOKAHEAD,
+                              candidates: (SlideContext, SlideQueue, Set<java.time.LocalDate>) -> List<FramePhoto>): String {
+        val history = HashMap<String, PlayRecord>()
+        val queue = SlideChooser().apply { load(emptyList(), emptySet()) }
+        val all = photos.map { it.id }.toSet()
+        var lastDay: java.time.LocalDate? = null
+        val spans = ArrayList<Double>(); var chooseNanos = 0L
+        val sizes = IntArray(5); var made = 0; var twins = 0; var tiledCount = 0
+        for (draw in 0 until draws) {
+            val ctx = SlideContext(photos, all, { true }, ::shapeOf, { true }, emptyMap(), 1920, 1080, true, 20, setOf("day"), false, history)
+            val pool = candidates(ctx, queue, setOfNotNull(lastDay))
+            val started = System.nanoTime()
+            val tiled = CollageSelection.choose(4, 1920, 1080, pool, ::shapeOf, { true }, emptySet(), lookahead = lookahead)
+            chooseNanos += System.nanoTime() - started
+            // As the frame does: when nothing tiles within the crop limit, the first candidates are shown whole.
+            val chosen = if (tiled.size >= 2) tiled else (4 downTo 2).firstNotNullOfOrNull { n -> pool.take(n).takeIf { it.size == n } } ?: continue
+            made++; sizes[chosen.size]++
+            if (tiled.size >= 2) tiledCount++
+            val times = chosen.map { it.takenMs }.sorted()
+            spans += (times.last() - times.first()) / 60_000.0
+            if (times.zipWithNext().any { (a, b) -> b - a < Bursts.MIN_SEPARATION_MS }) twins++
+            lastDay = chosen.first().date()
+            for (p in chosen) history[p.id] = PlayRecord(draw.toLong() + 1, 1)
+        }
+        if (made == 0) return "collage theme $label: none could be made"
+        return ("collage theme %s (%d draws): made %d%%, tiled within the crop limit %d%%, photos 4/3/2: %d%%/%d%%/%d%%, median span %.0f min, " +
+            "twins %.0f%%, fitting %.2f ms a collage").format(label, draws, 100 * made / draws, 100 * tiledCount / made,
+            100 * sizes[4] / made, 100 * sizes[3] / made, 100 * sizes[2] / made, spans.sorted()[spans.size / 2], 100.0 * twins / made, chooseNanos / 1e6 / draws)
+    }
+
+    @Test fun collageThemeReport() {
+        val photos = AlbumFixture.load()
+        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
+        println(collageReport("old same-day pool, 6 candidates", photos!!, 300, lookahead = 6) { ctx, queue, avoidDays ->
+            CollageThemeSelection.bestDay(ctx.photos, 4, ctx.cachedIds, queue.ineligible(emptySet()), avoidDays, seen = ctx.seen) })
+        for (lookahead in listOf(6, 8, 10, 12)) for (theme in CollageThemes.all)
+            println(collageReport("${theme.label}, ${lookahead} candidates", photos, 300, lookahead) { ctx, queue, avoidDays ->
+                theme.candidates(ctx, queue, 4, emptySet(), avoidDays.firstOrNull()) })
+    }
+
     @Test fun realAlbumReport() {
         val photos = AlbumFixture.load()
         assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)

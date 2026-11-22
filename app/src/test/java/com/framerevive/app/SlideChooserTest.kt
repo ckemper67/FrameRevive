@@ -17,9 +17,9 @@ class SlideChooserTest {
 
     private fun context(photos: List<FramePhoto> = singles + group, cached: Set<String> = photos.map { it.id }.toSet(),
                         collages: Boolean = true, pairs: Boolean = false, usable: Boolean = true,
-                        size: (FramePhoto) -> CollageLayout.Size? = { landscape }) =
+                        size: (FramePhoto) -> CollageLayout.Size? = { landscape }, themes: Set<String> = setOf("day")) =
         SlideContext(photos, cached, { it.id in cached }, size, { usable }, emptyMap(), 1920, 1080,
-            collages, 5, CollageThemeSelection.SOURCE_DAY, pairs)
+            collages, 5, themes, pairs)
 
     private fun chooser(playlist: List<FramePhoto>) = SlideChooser(Random(1)).apply { load(playlist, playlist.map { it.id }.toSet()) }
 
@@ -44,9 +44,8 @@ class SlideChooserTest {
         assertEquals("a same-day collage has one capture date", 1, slide.photos.map { it.date() }.distinct().size)
         assertTrue(slide.photos.all { it.id.startsWith("d") })
         assertTrue("its photos leave the queue so they do not replay", chooser.playlist.none { p -> slide.photos.any { it.id == p.id } })
-        assertEquals(CollageTheme.DAY, chooser.lastCollageTheme)
+        assertEquals("day", chooser.lastCollageTheme)
         assertEquals(slide.photos.first().date(), chooser.lastCollageDay)
-        assertEquals(null, chooser.collageTheme)
     }
 
     @Test fun noCollageBeforeItFallsDue() {
@@ -90,9 +89,9 @@ class SlideChooserTest {
         val chooser = chooser(singles)
         chooser.showSingles(4)
         val plan = chooser.preloadPlan(context(photos = singles + group, cached = emptySet()), depth = 3)
-        assertEquals(5, plan.size)
+        assertEquals("the whole candidate pool is queued for download", CollageSelection.LOOKAHEAD, plan.size)
         assertTrue(plan.take(plan.count { it.id.startsWith("d") }).all { it.id.startsWith("d") } && plan.any { it.id.startsWith("d") })
-        assertTrue(chooser.collageDay.isNotEmpty())
+        assertTrue(chooser.collagePlan.isNotEmpty())
     }
 
     @Test fun planningFarFromACollageLooksOnlyAtTheQueue() {
@@ -100,8 +99,7 @@ class SlideChooserTest {
         chooser.showSingles(1)
         val plan = chooser.preloadPlan(context(cached = emptySet()), depth = 3)
         assertEquals(listOf("s0", "s1", "s2"), plan.map { it.id })
-        assertNotNull(chooser.collageDay)
-        assertTrue(chooser.collageDay.isEmpty())
+        assertTrue(chooser.collagePlan.isEmpty())
     }
 
     @Test fun anAlbumChangeForgetsTheChosenDate() {
@@ -109,7 +107,7 @@ class SlideChooserTest {
         chooser.showSingles(4)
         chooser.preloadPlan(context(cached = emptySet()), depth = 3)
         chooser.resetForAlbum()
-        assertTrue(chooser.collageDay.isEmpty())
+        assertTrue(chooser.collagePlan.isEmpty())
         assertEquals(0, chooser.cadence.singles)
     }
 
@@ -137,7 +135,8 @@ class SlideChooserTest {
         chooser.showSingles(5)
         val slide = chooser.next(context(), null)!!
         assertTrue(slide.photos.none { it.id.startsWith("d") })
-        assertEquals("the chosen source had nothing eligible, so the other one served", 1, chooser.themeFallbacks)
+        assertEquals("the only day with enough photos was thinned out, so no collage could be made", SlideMode.SINGLE, slide.mode)
+        assertEquals(1, chooser.collageSkips)
     }
 
     @Test fun aCollageWithNothingUsableIsCountedAsSkipped() {
@@ -182,8 +181,10 @@ class SlideChooserTest {
     @Test fun aPreviewWithNothingReadyReportsWhatItFound() {
         val preview = chooser(singles + group).previewCollage(context(cached = emptySet(), usable = false), 2)
         assertTrue(preview.photos.isEmpty())
-        assertEquals(null, preview.theme)
-        assertEquals(2, preview.notes.size)
+        assertEquals(null, preview.themeId)
+        assertEquals("one theme was on, so one note", 1, preview.notes.size)
+        val both = chooser(singles + group).previewCollage(context(cached = emptySet(), usable = false, themes = setOf("day", "outing")), 2)
+        assertEquals("both themes were tried", 2, both.notes.size)
     }
 
     @Test fun thePoolToDownloadForAPreviewIsAtMostSixPhotosFromTheChosenDate() {
@@ -223,7 +224,7 @@ class SlideChooserTest {
     }
 
     private fun SlideContext.withSharp(sharp: (FramePhoto) -> Boolean) =
-        SlideContext(photos, cachedIds, isCached, size, usableForCollage, hashes, width, height, collages, collageEvery, collageSource, pairs, seen, sharp)
+        SlideContext(photos, cachedIds, isCached, size, usableForCollage, hashes, width, height, collages, collageEvery, themes, pairs, seen, sharp)
 
     @Test fun aSoftPhotoAtTheHeadIsPassedOverNotShown() {
         val chooser = chooser(singles)

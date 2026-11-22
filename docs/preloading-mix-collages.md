@@ -2,44 +2,38 @@
 
 ## Where a collage's photos come from
 
-A collage draws from **one capture date** — one birthday, one afternoon — because the ordinary stream already
-alternates unrelated photos; that alternation is the mix, and repeating it inside a collage adds nothing. The
-controls page offers *Collage source: Mixed* for an occasional collage drawn from the newest photos instead.
-If the chosen source cannot fill a collage, the other one is tried, so a collage is never skipped for want of
-material.
+A collage draws from **one day or one stretch of a day** (a *theme*), because the ordinary stream already
+alternates unrelated photos; repeating that inside a collage adds nothing. The controls page has one switch per
+theme, and collages take turns between the themes that are on. If one cannot find photos that fit, the next is tried;
+if none can, the collage is skipped and a single photo is shown. At least one theme stays on.
 
-The date's candidates are up to twelve photos, not the four that get shown: only with a wider pool can the
-layout choose shapes that tile the frame. Giving it exactly four photos is what produces a collage of two
-portrait and two landscape pictures squeezed into cells they do not fit. The count still degrades 4 to 3 to 2
-when no arrangement stays inside the crop limit, and the letterboxed layout is the last resort.
+- **A day:** different parts of one capture date, chosen far apart in time.
+- **One outing:** one stretch of a day, like a walk or a party: a seed photo and photos within an hour of it, again
+  far apart in time.
 
-**Preview collage** runs the same selection, and the page reports which dates the collage used, so a preview
-cannot show something the slideshow would not. (0.5.20)
-
-Everyday includes the Recent/Memories slider, recent-photo count and seasonal memory window. Recent means capture date. Newly discovered photos still get their first showing before the usual mix.
-
-Automatic preloading prepares four upcoming photos on disk, or five near the next collage. One background download runs at a time. Debug shows Ready, Loading, Queued and Failed states with capture dates, without private photo URLs. An existing download may finish after a plan changes.
-
-## Occasional collages
-
-Enabled by default, with a collage after 20 successfully displayed individual photos. Automatic collages cycle through 2, 3 and 4 photos. Choose 5–100 individual photos between collages or switch collages off. A collage lasts the normal photo interval. It uses distinct upcoming photos from the regular mix, avoiding the current photo. If the selected photos are not ready in the disk cache, ordinary playback continues and tries again later.
-
-The photos are chosen before the layout: photos whose shapes can cover the frame together are preferred, and the arrangement that needs the least cropping of any single photo wins. If the wanted count cannot cover the frame within the 30% crop limit, the next smaller count is used; if no shapes tile the frame, the collage keeps the letterboxed layout with the complete photos and the blurred background. Each cell is decoded at the size it needs, so cropping does not upscale.
-
-Multi-photo slides separate their pictures with a white passe-partout: a 28 px mount (about 7 mm on the 21.5-inch panel) between neighbouring photos, shared rather than doubled. There is no border at the screen edge: the outer photos run to it (`CollageLayout.EDGE` is 0). The mount used to run around the slide as well, as Lenovo's frame did; it was removed because the outer border cost picture area without adding anything.
-
-The layout is chosen from tall side-by-side panels, stacked panels, a larger main panel with two smaller panels, and a four-photo grid. The blurred-background setting fills unused cell space, and the date setting shows each photo's date. Pause, Next and Previous work with the whole collage. History contains photo references rather than retained bitmaps. After an album refresh, a historical collage is removed if any member is no longer available.
-
-Pairs are separate from collages and run in between them; see [Show pairs](show-pair.md). A pair counts as one photo for the collage counter.
+More themes are proposed in `collage-themes.md`.
 
 ## What a collage is made of
 
-Each collage picks one of two sources at random and keeps that choice while it waits for downloads:
+1. **When:** after every 20 single slides (setting 5 to 100). Every collage aims for four photos and settles for three or
+   two when four do not tile the frame; the count is not chosen ahead of time.
+2. **Which day:** days with at least the wanted number of dated photos are ranked: a day whose photos are already
+   downloaded first, then the day with the most photos not shown yet, then the one shown longest ago, then the bigger
+   and the newer. The previous collage's date is skipped when another qualifies. Days are the photo's own local
+   day (its capture time plus its own timezone offset); undated photos never form a day.
+3. **Candidates:** the theme offers 8 to 12 photos, not yet shown first, spread through time, and never two
+   within two minutes of each other, so a collage does not show frames of one instant. The first few are queued for
+   download as soon as the collage is nearly due, so playback keeps moving until they arrive.
+4. **Fit:** from the first 10 usable candidates (downloaded, not blurry, not in the previous slide), four photos are
+   tried against the layouts (columns, rows, a grid, L-shapes for three), rejecting near-identical pairs by hash and any
+   arrangement that crops a photo by more than 30%; the least-cropped wins. If four do not tile, three are tried, then
+   two, and the letterboxed layout (as many candidates as there are, shown whole) is the last resort. The layout depends
+   only on the photos' aspect ratios, so photos are grouped by aspect and each distinct set is fitted once, which keeps
+   a pool of 10 cheap. All ten are queued for download two slides before the collage is due.
+5. **After:** the photos count as shown and leave the round.
 
-- **Recent:** every member comes from the newest 300 photos by capture time (the fixed round size) — the same rule the photo mix uses — so the collage never leaves the current photos.
-- **Same day:** every member was taken on one capture date, so the collage is one afternoon or one birthday. Dates with at least the wanted number of photos qualify; a date whose photos are all cached wins, then the date with the most photos, then the newest. The date used for one collage is skipped for the next, and that date's photos are queued for download as soon as the collage is due so playback keeps moving until they arrive.
-
-If the chosen source has nothing ready, the other source is tried for that collage; if neither works the collage is skipped and retried later. Shape selection still applies: the chosen photos are arranged to cover the frame, the count drops when that count cannot fit, and the letterboxed layout is the only remaining fallback. A same-day collage shows whole photos more often than a recent one, because a single afternoon rarely provides four matching shapes.
+On the owner's real album the old pool (a day's photos in album order) put two photos within two minutes of each other
+in 51% (2 photos), 85% (3) and 94% (4) of collages; the themes do so in 0 to 5%.
 
 ## Soft shots are left out
 

@@ -30,13 +30,25 @@ class MainActivity : Activity() {
      * Where the dates go. On each picture they label their own caption inside the photo; under the group they
      * form one row per distinct date, so a same-day group reads as a single date and a longer span as a list.
      */
+    /** A slide's photos in the order they are read on screen: along each row in the language's direction, rows top to bottom. */
+    private fun inReadingOrder(slide: FrameSlide): List<FramePhoto> {
+        if (slide.mode == SlideMode.SINGLE) return slide.photos
+        return runCatching {
+            val d = resources.displayMetrics
+            val placement = CollageLayout.place(d.widthPixels, d.heightPixels, slide.photos.map(::photoSize), fill = true)
+            // The way the frame's language is read: left to right for most, right to left for Arabic and Hebrew.
+            val rightToLeft = resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
+            CollageLayout.readingOrder(placement.panels, rightToLeft).map { slide.photos[it] }
+        }.getOrDefault(slide.photos)
+    }
+
     private fun refreshCaption(slide: FrameSlide?) {
         val pattern = FrameCaption.DATE
         val grouped = prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_UNDER_GROUP
         val line = when {
             slide == null -> ""
             slide.mode == SlideMode.SINGLE -> slide.photos.firstOrNull()?.takeIf { it.dated }?.date()?.format(pattern).orEmpty()
-            grouped -> FrameCaption.groupedDates(slide.photos)
+            grouped -> FrameCaption.groupedDates(inReadingOrder(slide))
             else -> ""
         }
         caption.text = line
@@ -123,7 +135,6 @@ class MainActivity : Activity() {
     @Volatile private var qualityPending = 0
     @Volatile private var qualityMedianCache: Float? = null
     @Volatile private var qualityMedianKnown = false
-    private var previewCollageCount=2
     private var lastSlide: FrameSlide? = null
     private val network = Executors.newSingleThreadExecutor()
     private val syncing = AtomicBoolean(false)
@@ -330,6 +341,10 @@ class MainActivity : Activity() {
         val snapshot = PhotoDeck.pruned(playHistory, albumIds)
         historyWriter.execute { runCatching { PhotoDeck.save(historyFile, snapshot) } }
     }
+
+    /** The collage themes switched on, one checkbox each; every theme is on until the owner turns it off. */
+    private fun enabledThemes(): Set<String> = CollageThemes.all.filter { prefs.getBoolean("collageTheme_${it.id}", true) }.map { it.id }.toSet()
+        .ifEmpty { setOf(CollageThemes.DAY.id) }
 
     private fun awakeHours() = FrameSchedule.awakeHours(prefs.getBoolean("schedule", false),
         LocalTime.parse(prefs.getString("sleepStart", "22:00")), LocalTime.parse(prefs.getString("sleepEnd", "07:00")))
@@ -614,13 +629,13 @@ class MainActivity : Activity() {
         val d=resources.displayMetrics
         val gate=sharpnessGate()
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,{ p -> p.id in cachedIds && gate(p) },hashes,d.widthPixels,d.heightPixels,
-            prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
+            prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),enabledThemes(),
             prefs.getBoolean("pairs",true),playHistory,gate)
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
         if(!fromHistory) {
-            collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown()
+            collageCadence.displayed(slide.collage)
             // Record what was on the panel so the deck can prefer what has not been seen.
             chooser.claim(slide.photos.map { it.id }, playHistory, System.currentTimeMillis())
             if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
@@ -750,7 +765,7 @@ class MainActivity : Activity() {
                         prefs.edit().putStringSet("priorityIds", priorityIds.toSet()).apply()
                         val hasAdditions = priorityIds.isNotEmpty()
                         flushQuality()
-                        chooser.collageDay = emptyList()
+                        chooser.forgetCollagePlan()
                         albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader
                         photos = fresh; photosByRecency = byRecency; rebuild(); planPreloads()
                         setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
@@ -877,6 +892,7 @@ class MainActivity : Activity() {
         if (sharedLink.isNotBlank()) flags += "shared"
         if (syncing.get()) flags += "syncing"
         if (albumSwitching || syncing.get() || preloadEntries.any { it.status == PhotoPreloader.Status.QUEUED || it.status == PhotoPreloader.Status.LOADING }) flags += "busy"
+        for (theme in CollageThemes.all) if (theme.id in enabledThemes()) flags += "collageTheme_${theme.id}"
         for (name in listOf("schedule", "crop", "date", "gestures", "blurBackground", "gentleTransitions")) {
             if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions")) flags += name
         }
@@ -887,14 +903,13 @@ class MainActivity : Activity() {
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
             "recencyBias" to Recency.of(prefs.getString("recencyBias",null)).id, "skipBlurry" to sharpness().id, "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
-            "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
-            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
-                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo ${if(chooser.lastCollageTheme == CollageTheme.DAY) "same-day" else "recent"} collage on screen, dates " +
+            "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · ${collageCadence.singles} shown · " +
+                (if(lastSlide?.collage == true) "${lastSlide?.photos?.size}-photo collage (${CollageThemes.byId(chooser.lastCollageTheme.orEmpty())?.label?.lowercase() ?: "a day"}) on screen, dates " +
                     lastSlide?.photos?.map { it.date().toString() }?.distinct()?.joinToString() else "Single photo") +
                 " · Since start: ${chooser.collageReport()}"),
             "pairSummary" to (if(!prefs.getBoolean("pairs",true)) "Disabled"
@@ -930,7 +945,7 @@ class MainActivity : Activity() {
                 "Bursts: $burstEvents events of ${Bursts.MIN_EVENT}+ frames within ${Bursts.MAX_GAP_MS/60000} minutes; $burstHeld frames held back this cycle (${Bursts.KEEP} per event)",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
-                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",
+                "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; themes ${enabledThemes().joinToString()}",
                 "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
                 "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${softCount()} kept out of every slide (skip blurry: ${sharpness().id})",
                 "Sharpness, share of typical: ${PhotoQuality.bands(qualityScores.values, qualityMedian())?.let { b -> listOf("<12%","12-25%","25-40%","40-60%","60%+").zip(b).joinToString(" ") { (label, n) -> "$label=$n" } } ?: "not enough photos scored yet"}",
@@ -990,8 +1005,9 @@ class MainActivity : Activity() {
                     val recentPercent=if(changingMix) fields["recentPercent"]?.toIntOrNull() ?: error("Mix required") else prefs.getInt("recentPercent",50)
                     require(memoryDays in 0..60 && recentPercent in 0..100)
                     val collageEvery=if(changingMix) fields["collageEvery"]?.toIntOrNull() ?: prefs.getInt("collageEvery",20) else prefs.getInt("collageEvery",20)
-                    val collageSource=if(changingMix) fields["collageSource"]?.takeIf { it in setOf(CollageThemeSelection.SOURCE_DAY,CollageThemeSelection.SOURCE_MIXED) }
-                        ?: CollageThemeSelection.SOURCE_DAY else prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty()
+                    // Each theme is a checkbox of its own; at least one stays on so collages always have a source.
+                    val themeOn = CollageThemes.all.associate { it.id to (if(changingMix) fields.containsKey("collageTheme_${it.id}") else prefs.getBoolean("collageTheme_${it.id}",true)) }
+                        .let { chosen -> if(chosen.values.none { it }) chosen + (CollageThemes.DAY.id to true) else chosen }
                     require(collageEvery in 5..100) { "Choose 5 to 100 photos between collages." }
                     val holidayTheme = fields["holidayTheme"] ?: prefs.getString("holidayTheme", "off").orEmpty()
                     require(holidayTheme in HolidayTheme.labels) { "Choose a holiday theme from the list." }
@@ -1008,8 +1024,9 @@ class MainActivity : Activity() {
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
                     if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
-                        .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).putString("collageSource",collageSource)
+                        .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery)
                         .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
+                    if(changingMix) themeOn.forEach { (id, on) -> edit.putBoolean("collageTheme_$id", on) }
                     edit.commit()
                     FramePower.schedule(this)
                     handler.postDelayed({
@@ -1020,7 +1037,7 @@ class MainActivity : Activity() {
                             image.scaleType = if (prefs.getBoolean("crop",false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                             refreshCaption(lastSlide)
                             caption.visibility = if (lastSlide?.collage != true && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
-                            if(changingMix || plannedSlots() != plannedBefore) { generation++; setPhotoLoading(false); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }
+                            if(changingMix || plannedSlots() != plannedBefore) { generation++; setPhotoLoading(false); chooser.forgetCollagePlan(); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }
                             checkSchedule(wakeFromSchedule = wasSleeping)
                         }
                     }, 1000)
@@ -1030,7 +1047,7 @@ class MainActivity : Activity() {
                     if(!active || sleeping) return "Wake the frame before previewing a collage."
                     // A same-day collage draws photos that are usually not cached yet, so the preview waits for
                     // them the way playback does instead of quietly substituting photos from other days.
-                    val count=previewCollageCount
+                    val count=CollageCadence.MAX_PHOTOS
                     fun attempt(tries:Int) {
                         handler.post {
                             try {
@@ -1040,8 +1057,7 @@ class MainActivity : Activity() {
                                 if(plan.photos.size in 2..4) {
                                     handler.removeCallbacks(advance)
                                     showSlide(FrameSlide(plan.photos),fromHistory=true)
-                                    previewCollageCount=2+(previewCollageCount-1)%3
-                                    prefs.edit().putString("previewNote", plan.notes.joinToString("; ") + " -> ${plan.theme?.name?.lowercase()} ${plan.photos.size}").apply()
+                                    prefs.edit().putString("previewNote", plan.notes.joinToString("; ") + " -> ${plan.themeId} ${plan.photos.size}").apply()
                                     return@post
                                 }
                                 if(tries > 0) {
@@ -1054,7 +1070,7 @@ class MainActivity : Activity() {
                     }
                     preloader.plan(chooser.previewPool(slideContext(),count))
                     attempt(12)
-                    "Choosing a $count-photo collage. Same-day photos may need up to half a minute to download."
+                    "Choosing a collage of up to $count photos. Its photos may need up to half a minute to download."
                 }
                 "pause" -> { handler.post { setPlaybackPaused(true) }; "Slideshow paused." }
                 "resume" -> { handler.post { setPlaybackPaused(false) }; "Slideshow resumed." }

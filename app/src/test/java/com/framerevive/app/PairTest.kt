@@ -106,7 +106,6 @@ class PairTest {
         assertTrue(pair.pair);assertFalse(pair.collage)
         cadence.displayed(pair.collage)
         assertEquals(20,cadence.singles);assertTrue(cadence.due(20))
-        assertEquals(2,cadence.nextCount)
         val collage=FrameSlide(listOf(photo(3),photo(4)),SlideMode.COLLAGE)
         assertTrue(collage.collage);assertFalse(collage.pair)
     }

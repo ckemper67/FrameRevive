@@ -45,6 +45,20 @@
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Collage themes replace the collage source. Two themes, switched on or off separately on the controls page, take
+  turns: A day (different parts of one day) and One outing (a seed photo and the photos within an hour of it). Both
+  choose photos far apart in time and never within two minutes of each other; before, a collage took the first photos
+  of a day in album order and put two photos within two minutes of each other in 51 to 94% of collages on a real
+  album. Days are now counted with each photo's own timezone, and undated photos can no longer form a day. The
+  Mixed source is gone.
+- Collages no longer cycle through 2, 3 and 4 photos. Each aims for four and settles for three or two only when four
+  do not tile the frame, and the shape fitting looks at 10 candidates instead of 6 (photos are grouped by aspect ratio,
+  so each distinct set of shapes is fitted once). On a real album with the themes, 74% of day collages and 35% of outing
+  collages have four photos, and 97 to 98% tile within the crop limit instead of showing whole photos on a blurred
+  background (before: 49% of four-photo day collages tiled).
+- The dates under a group of pictures follow the pictures: read along each row in the direction of the frame's language
+  (left to right, or right to left for Arabic and Hebrew) and top to bottom, each distinct date once, instead of being
+  sorted by date.
 - Remove the Photos per round setting. The frame plans about one awake day at a time: the photos it shows in a day at
   its pace, with a margin for skipped near-identical frames, kept between 300 and 2,000. The plan is rebuilt when the
   date changes, when it runs out, and when the seconds per photo or the sleep schedule are changed, so it follows the

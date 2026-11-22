@@ -8,7 +8,7 @@ class SlideContext(
     val photos: List<FramePhoto>, val cachedIds: Set<String>, val isCached: (FramePhoto) -> Boolean,
     val size: (FramePhoto) -> CollageLayout.Size?, val usableForCollage: (FramePhoto) -> Boolean,
     val hashes: Map<String, Long>, val width: Int, val height: Int,
-    val collages: Boolean, val collageEvery: Int, val collageSource: String, val pairs: Boolean,
+    val collages: Boolean, val collageEvery: Int, val themes: Set<String>, val pairs: Boolean,
     val seen: Map<String, PlayRecord> = emptyMap(),
     /** Whether a photo is sharp enough to show; unscored photos pass. Called per photo, so it must not read preferences or files. */
     val sharp: (FramePhoto) -> Boolean = { true })
@@ -57,96 +57,116 @@ class PairPresentation : Presentation {
 }
 
 /** A collage as Preview built it, with the notes the controls page shows. */
-class CollagePreview(val photos: List<FramePhoto>, val theme: CollageTheme?, val notes: List<String>)
+class CollagePreview(val photos: List<FramePhoto>, val themeId: String?, val notes: List<String>)
 
 /**
- * Two to four photos tiled to cover the frame, from one capture date or from the newest photos. The date is
- * chosen before the collage falls due so its photos can be downloaded, and the other source serves when the
- * chosen one has nothing eligible and ready.
+ * Two to four photos tiled to cover the frame. The enabled themes take turns, so consecutive collages differ; each
+ * offers candidate photos and the shape fitting picks the combination that crops least. The next collage's photos
+ * are chosen before it falls due so they can be downloaded, and when a theme has nothing that fits, the next one in
+ * turn is tried before the collage is given up.
  */
-class CollagePresentation(private val cadence: CollageCadence, private val random: Random) : Presentation {
+class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     override val mode = SlideMode.COLLAGE
-    var day: List<FramePhoto> = emptyList()
-    var theme: CollageTheme? = null
-    var lastTheme: CollageTheme? = null
+    /** The next collage's candidates, chosen ahead of time, and the theme that offered them. */
+    var plan: List<FramePhoto> = emptyList()
+    private var planTheme: CollageTheme? = null
+    var lastThemeId: String? = null
     var lastDay: LocalDate? = null
     var shown = 0; private set
     var skipped = 0; private set
     var fallbacks = 0; private set
+    /** Position in the enabled themes of the one whose turn it is. */
+    private var turn = 0
     private var proposedTheme: CollageTheme? = null
     private var firstTheme: CollageTheme? = null
 
     override fun due(ctx: SlideContext, cadence: CollageCadence) = ctx.collages && cadence.due(ctx.collageEvery)
 
-    /** Candidates from [source]. With [memoize] the chosen date is kept, so the photos named for download are the ones used. */
-    private fun pool(source: CollageTheme, ctx: SlideContext, queue: SlideQueue, avoid: Set<String>, count: Int, memoize: Boolean): List<FramePhoto> =
-        when (source) {
-            CollageTheme.DAY -> {
-                fun best() = CollageThemeSelection.bestDay(ctx.photos, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), seen = ctx.seen)
-                if (!memoize) best() else { if (day.size < count) day = best(); day }
-            }
-            CollageTheme.RECENT -> queue.upcoming.filter { it.id in queue.recentIds }
-        }
+    private fun enabled(ctx: SlideContext): List<CollageTheme> = CollageThemes.all.filter { it.id in ctx.themes }.ifEmpty { listOf(CollageThemes.DAY) }
 
-    /** Shape and quality selection run inside the theme; the letterboxed layout is the last resort. */
+    /** The enabled themes starting with the one whose turn it is. */
+    private fun inTurn(ctx: SlideContext): List<CollageTheme> {
+        val list = enabled(ctx)
+        val start = turn % list.size
+        return list.drop(start) + list.take(start)
+    }
+
+    /**
+     * The collage that fits best: as many photos as tile the frame within the crop limit, up to [count], and never fewer
+     * than two. When nothing tiles, the first candidates are shown whole on a blurred background, again as many as there
+     * are.
+     */
     private fun fit(ctx: SlideContext, pool: List<FramePhoto>, count: Int, avoid: Set<String>, last: FrameSlide?): List<FramePhoto> {
         val fitting = CollageSelection.choose(count, ctx.width, ctx.height, pool, ctx.size, ctx.usableForCollage, avoid, hashes = ctx.hashes)
-        return if (fitting.size in 2..4) fitting else CollageCadence.candidates(pool, last?.photos.orEmpty(), count, ctx.usableForCollage)
+        if (fitting.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) return fitting
+        for (n in count downTo CollageCadence.MIN_PHOTOS) {
+            val whole = CollageCadence.candidates(pool, last?.photos.orEmpty(), n, ctx.usableForCollage)
+            if (whole.isNotEmpty()) return whole
+        }
+        return emptyList()
     }
 
     override fun propose(ctx: SlideContext, queue: SlideQueue, avoid: Set<String>, last: FrameSlide?): List<FramePhoto>? {
-        val count = cadence.nextCount
-        var source = theme ?: CollageThemeSelection.chosen(ctx.collageSource, random).also { theme = it; day = emptyList() }
-        firstTheme = source
-        var selected = fit(ctx, pool(source, ctx, queue, avoid, count, true), count, avoid, last)
-        if (selected.size !in 2..4) {
-            val alternative = CollageThemeSelection.other(source)
-            fit(ctx, pool(alternative, ctx, queue, avoid, count, true), count, avoid, last).takeIf { it.size in 2..4 }?.let { selected = it; source = alternative }
+        val count = CollageCadence.MAX_PHOTOS
+        val themes = inTurn(ctx)
+        firstTheme = themes.first()
+        // The plan made ahead first (its photos are the ones downloaded), then each theme in turn.
+        val attempts = ArrayList<Pair<CollageTheme, List<FramePhoto>>>()
+        planTheme?.takeIf { plan.size >= CollageCadence.MIN_PHOTOS }?.let { attempts += it to plan }
+        for (theme in themes) if (theme !== planTheme) attempts += theme to theme.candidates(ctx, queue, count, avoid, lastDay)
+        for ((theme, pool) in attempts) {
+            val selected = fit(ctx, pool, count, avoid, last)
+            if (selected.size in 2..4) { proposedTheme = theme; return selected }
         }
-        if (selected.size !in 2..4) { skipped++; return null }
-        proposedTheme = source
-        return selected
+        skipped++
+        return null
     }
 
     override fun chosen(queue: SlideQueue, photos: List<FramePhoto>) {
         shown++
-        if (proposedTheme != firstTheme) fallbacks++
+        if (proposedTheme !== firstTheme) fallbacks++
         queue.take(photos)
-        lastTheme = proposedTheme; theme = null; day = emptyList()
-        if (proposedTheme == CollageTheme.DAY) lastDay = photos.first().date()
+        lastThemeId = proposedTheme?.id
+        lastDay = photos.first().date()
+        plan = emptyList(); planTheme = null
+        // The next collage starts with the theme after the one just shown.
+        proposedTheme?.let { used -> val position = CollageThemes.all.indexOf(used); if (position >= 0) turn = position + 1 }
     }
 
-    /** The photos to have ready, nearest first, naming a same-day collage's photos before it falls due. */
+    /** The photos to have ready, nearest first, naming the next collage's photos before it falls due. */
     fun preload(ctx: SlideContext, queue: SlideQueue, depth: Int): List<FramePhoto> {
-        val soon = ctx.collages && cadence.singles >= ctx.collageEvery - 1
-        val count = if (soon) maxOf(depth, 5) else depth
-        // The date has to be chosen here, while there is still time to download it: choosing it only when the
-        // collage falls due leaves nothing cached, the layout finds no usable shapes and playback silently
-        // falls back to the recent source.
+        // Two slides ahead: the fitting looks at several candidates, and all of them have to be downloaded by the time it runs.
+        val soon = ctx.collages && cadence.singles >= ctx.collageEvery - 2
+        val count = if (soon) maxOf(depth, CollageSelection.LOOKAHEAD) else depth
+        // The photos have to be chosen here, while there is still time to download them: choosing them only when the
+        // collage falls due leaves nothing cached, the layout finds no usable shapes and the collage is skipped.
         val planned = if (soon) {
-            if (CollageThemeSelection.chosen(ctx.collageSource, random) == CollageTheme.DAY && day.size < cadence.nextCount)
-                day = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, queue.ineligible(emptySet()), setOfNotNull(lastDay), seen = ctx.seen)
-            day + queue.upcoming
+            if (plan.size < CollageCadence.MIN_PHOTOS) {
+                for (theme in inTurn(ctx)) {
+                    val pool = theme.candidates(ctx, queue, CollageCadence.MAX_PHOTOS, emptySet(), lastDay)
+                    if (pool.size >= CollageCadence.MIN_PHOTOS) { plan = pool; planTheme = theme; break }
+                }
+            }
+            plan + queue.upcoming
         } else queue.upcoming
         return planned.distinctBy { it.id }.take(count)
     }
 
     /**
      * The collage playback would show for [count] photos right now, without touching the queue, the cadence or
-     * the play history. It rotates the date like a real collage so repeated previews differ.
+     * the play history. It moves on to the next theme and day like a real collage so repeated previews differ.
      */
     fun preview(ctx: SlideContext, queue: SlideQueue, count: Int): CollagePreview {
-        val source = CollageThemeSelection.chosen(ctx.collageSource, random)
         val notes = mutableListOf<String>()
-        for (candidate in listOf(source, CollageThemeSelection.other(source))) {
-            val all = pool(candidate, ctx, queue, emptySet(), count, false)
+        for (theme in inTurn(ctx)) {
+            val all = theme.candidates(ctx, queue, count, emptySet(), lastDay)
             val ready = all.filter { it.id in ctx.cachedIds }
             val fitting = fit(ctx, ready, count, emptySet(), null)
-            notes += "$candidate pool=${all.size} cached=${ready.size} fitted=${fitting.size}"
+            notes += "${theme.id} pool=${all.size} cached=${ready.size} fitted=${fitting.size}"
             if (fitting.size in 2..4) {
-                lastTheme = candidate
-                if (candidate == CollageTheme.DAY) lastDay = fitting.first().date()
-                return CollagePreview(fitting, candidate, notes)
+                lastThemeId = theme.id; lastDay = fitting.first().date()
+                turn = CollageThemes.all.indexOf(theme) + 1
+                return CollagePreview(fitting, theme.id, notes)
             }
         }
         return CollagePreview(emptyList(), null, notes)
@@ -154,28 +174,32 @@ class CollagePresentation(private val cadence: CollageCadence, private val rando
 
     /** Photos worth downloading so a preview that found nothing ready can succeed on a later try. */
     fun previewPool(ctx: SlideContext, queue: SlideQueue, count: Int): List<FramePhoto> =
-        pool(CollageThemeSelection.chosen(ctx.collageSource, random), ctx, queue, emptySet(), count, false).take(6)
+        inTurn(ctx).firstNotNullOfOrNull { theme -> theme.candidates(ctx, queue, count, emptySet(), lastDay).takeIf { it.isNotEmpty() } }.orEmpty().take(6)
 
-    fun resetForAlbum() { day = emptyList(); lastDay = null; theme = null }
+    /** The catalog changed, so candidates chosen from the old one are stale. */
+    fun forgetPlan() { plan = emptyList(); planTheme = null }
+
+    fun resetForAlbum() { forgetPlan(); lastDay = null; lastThemeId = null; turn = 0 }
 }
 
 /**
  * Owns the queue and asks the presentations, in order, for the next slide: a collage when one falls due, else a
  * pair when one fits, else a single. [extra] presentations are tried after the collage and before the pair.
  */
-class SlideChooser(random: Random = Random.Default, extra: List<Presentation> = emptyList()) : SlideQueue {
+class SlideChooser(@Suppress("UNUSED_PARAMETER") random: Random = Random.Default, extra: List<Presentation> = emptyList()) : SlideQueue {
     val cadence = CollageCadence()
     var playlist: List<FramePhoto> = emptyList()
     var index = 0
     override var recentIds: Set<String> = emptySet()
 
-    val collage = CollagePresentation(cadence, random)
+    val collage = CollagePresentation(cadence)
     private val presentations: List<Presentation> = listOf<Presentation>(collage) + extra + PairPresentation() + SinglePresentation()
 
-    var collageDay: List<FramePhoto> get() = collage.day; set(value) { collage.day = value }
-    var collageTheme: CollageTheme? get() = collage.theme; set(value) { collage.theme = value }
-    var lastCollageTheme: CollageTheme? get() = collage.lastTheme; set(value) { collage.lastTheme = value }
-    var lastCollageDay: LocalDate? get() = collage.lastDay; set(value) { collage.lastDay = value }
+    /** The next collage's candidates, chosen ahead of time. */
+    val collagePlan: List<FramePhoto> get() = collage.plan
+    val lastCollageTheme: String? get() = collage.lastThemeId
+    val lastCollageDay: LocalDate? get() = collage.lastDay
+    fun forgetCollagePlan() = collage.forgetPlan()
     val collagesChosen get() = collage.shown
     val collageSkips get() = collage.skipped
     val themeFallbacks get() = collage.fallbacks

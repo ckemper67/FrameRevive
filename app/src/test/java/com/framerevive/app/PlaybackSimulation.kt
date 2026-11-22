@@ -89,7 +89,7 @@ class PlaybackSimulation {
     }
 
     /** Drives the real chooser the way the activity does: rebuild an exhausted queue, ask for a slide, record it. */
-    private fun runSlides(settings: CycleSettings, slides: Int, seed: Int, source: String = CollageThemeSelection.SOURCE_DAY,
+    private fun runSlides(settings: CycleSettings, slides: Int, seed: Int, themes: Set<String> = setOf("day"),
                           pairs: Boolean = true, collageEvery: Int = 20): SlideReport {
         val random = Random(seed)
         val photos = album(random)
@@ -97,7 +97,7 @@ class PlaybackSimulation {
         val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
         val allIds = photos.map { it.id }.toSet()
         val history = HashMap<String, PlayRecord>()
-        val ctx = SlideContext(photos, allIds, { true }, ::shape, { true }, emptyMap(), 1920, 1080, true, collageEvery, source, pairs, history)
+        val ctx = SlideContext(photos, allIds, { true }, ::shape, { true }, emptyMap(), 1920, 1080, true, collageEvery, themes, pairs, history)
         val chooser = SlideChooser(random)
         var last: FrameSlide? = null
         var clock = 0L
@@ -123,7 +123,6 @@ class PlaybackSimulation {
                     collages++
                     outside += slide.photos.count { it.id !in cycleIds }
                     replays += slide.photos.count { it.id in history }
-                    chooser.cadence.collageShown()
                 }
             }
             chooser.cadence.displayed(slide.collage)

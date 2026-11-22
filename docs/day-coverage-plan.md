@@ -236,6 +236,12 @@ days while enough other photos exist) keeps a small recent pool from repeating a
 
 ### D. Collages from moments
 
+Optional. It makes collages more cohesive (one outing instead of a random assortment from the day) but also narrower:
+a same-day collage can show different parts of a day, which arguably represents "a day" better. Collages are about
+11 a day at the owner's pace, around 14% of the photos shown. A cheaper variant needs no grouping: choose a seed
+photo and fill the collage from photos within an hour or two of it. Do this only if the owner wants cohesive
+collages. The measurements follow.
+
 A same-day collage can show the morning at home beside the evening restaurant. Measured on the real album (the
 1,033 days with 4 or more photos, the only ones that can make a 4-photo collage): four random photos from a day
 mix two or more moments on 41% of days (2-hour gap) to 58% (1-hour gap), with a median time span of about 135
@@ -330,7 +336,8 @@ same picture, and measures gaps in absolute time (with tests, including two phot
 timezone). Results on the real album are in "What the frame does today". The per-round cap of 3 per burst stays, and
 the hash check stays as a second guard. The burst gap is still 60 minutes.
 
-Still to do: collages drawn from a moment instead of a calendar day, with the day as fallback (part D), using
+Optional, awaiting the owner's preference (not recommended by default, see part D): collages drawn from a moment
+instead of a calendar day, with the day as fallback, using
 `Bursts.events` with a 2-hour gap; and a cohesion measure in `RealAlbumSimulation` (median time span of a collage's
 photos, how often it mixes moments; expected from the measurements above: about 135 minutes down to about 40). Open
 side effect to decide: the rounds are now about 380 slots, so the "Photos per round" label no longer says exactly how

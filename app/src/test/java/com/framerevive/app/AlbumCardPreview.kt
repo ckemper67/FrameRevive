@@ -40,7 +40,7 @@ class AlbumCardPreview {
         val page = FrameWeb.render(FrameWeb.State(
             mapOf("memoryDays" to "${cycle.memoryDays}", "recentPercent" to "${cycle.recentPercent}",
                 "memoryPercent" to "${100 - cycle.recentPercent}", "recencyBias" to "somewhat", "skipBlurry" to "medium", "collageEvery" to "20",
-                "collageSource" to "day", "deckSummary" to "Preview of a real album after $rounds rounds of play."),
+                "deckSummary" to "Preview of a real album after $rounds rounds of play."),
             setOf("shared"), albumHtml = card))
         val out = File(source!!.parentFile, "controls-preview.html")
         out.writeText(page)

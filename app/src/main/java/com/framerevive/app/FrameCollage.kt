@@ -25,9 +25,9 @@ object FrameCollage {
             val inset=24f*maxOf(scale,0.75f)
             fun rect(box:CollageLayout.Box)=RectF(box.left,box.top,box.right,box.bottom)
             val sizes=photos.map(size)
-            val filled=if(fill) CollageLayout.fill(w,h,sizes) else null
-            val panels=filled?.panels ?: CollageLayout.arrange(w,h,sizes)
-            val cover=filled!=null
+            val placement=CollageLayout.place(width,height,sizes,fill)
+            val panels=placement.panels
+            val cover=placement.covers
             for(panel in panels) {
                 val i=panel.photo;val cell=panel.box
                 val bitmap=load(photos[i],CollageLayout.neededEdge(cell,sizes[i],cover))

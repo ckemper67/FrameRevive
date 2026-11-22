@@ -19,11 +19,11 @@ class CollageCadence {
         private set
     fun due(every: Int): Boolean { require(every in 5..100); return singles >= every }
     fun displayed(collage: Boolean) { singles = if(collage) 0 else (singles+1).coerceAtMost(100) }
-    private var collageNumber=0
-    val nextCount get()=2+collageNumber%3
-    fun collageShown() { collageNumber=(collageNumber+1)%3 }
-    fun reset() { singles=0;collageNumber=0 }
+    fun reset() { singles=0 }
     companion object {
+        /** The most photos a collage may have. Every collage aims for this many and settles for fewer when they do not tile. */
+        const val MAX_PHOTOS=4
+        const val MIN_PHOTOS=2
         fun candidates(upcoming: List<FramePhoto>, previous: List<FramePhoto>, count: Int=4, ready: (FramePhoto)->Boolean): List<FramePhoto> {
             require(count in 2..4)
             val avoid=previous.map { it.id }.toSet()
@@ -163,6 +163,40 @@ object CollageLayout {
         val left = e + firstNatural * zoom
         return PairLayout(listOf(Box(e, e, left, height - e),
             Box(left + gap, e, left + gap + secondNatural * zoom, height - e)), zoom)
+    }
+
+    /** The size collages are drawn at: the screen, capped at 1920 pixels on its long edge. */
+    fun outputSize(width: Int,height: Int): Pair<Int,Int> {
+        val scale=minOf(1f,1920f/maxOf(width,height))
+        return maxOf(32,(width*scale).toInt()) to maxOf(32,(height*scale).toInt())
+    }
+
+    /** Which photo goes in which box. [covers] is false for the letterboxed layout used when nothing fills the frame. */
+    class Placement(val panels: List<Panel>,val covers: Boolean)
+
+    /** The placement a collage of [sizes] gets on a [width] by [height] screen, as it is drawn. */
+    fun place(width: Int,height: Int,sizes: List<Size>,fill: Boolean): Placement {
+        val (w,h)=outputSize(width,height)
+        val filled=if(fill) fill(w,h,sizes) else null
+        return Placement(filled?.panels ?: arrange(w,h,sizes),filled!=null)
+    }
+
+    /**
+     * Photo indices in reading order: along each row in the reading direction (left to right, or right to left when
+     * [rightToLeft], as Arabic and Hebrew read), the rows from top to bottom.
+     */
+    fun readingOrder(panels: List<Panel>,rightToLeft: Boolean=false): List<Int> {
+        val out=ArrayList<Int>(panels.size)
+        val byTop=panels.sortedBy { it.box.top }
+        var i=0
+        while(i < byTop.size) {
+            // Boxes whose tops are within a pixel or two share a row.
+            var j=i+1
+            while(j < byTop.size && byTop[j].box.top-byTop[i].box.top <= 1.5f) j++
+            (if(rightToLeft) byTop.subList(i,j).sortedByDescending { it.box.left } else byTop.subList(i,j).sortedBy { it.box.left }).forEach { out += it.photo }
+            i=j
+        }
+        return out
     }
 
     fun fit(width: Int,height: Int,cell: Box,fill: Boolean=false): Box {

@@ -40,11 +40,12 @@ class CollageTest {
         h.transform { if(it.collage) null else it };assertNull(h.previous());assertEquals("6",h.next()!!.photos.first().id)
     }
     @Test fun collageSizesCycleOnlyAfterSuccessfulAutomaticCollages() {
-        val c=CollageCadence();assertEquals(2,c.nextCount)
-        repeat(20) { c.displayed(false) };assertEquals(2,c.nextCount)
-        c.displayed(true);c.collageShown();assertEquals(3,c.nextCount)
-        c.collageShown();assertEquals(4,c.nextCount);c.collageShown();assertEquals(2,c.nextCount)
-        c.reset();assertEquals(2,c.nextCount)
+        val c=CollageCadence()
+        assertEquals("a collage aims for the most photos every time",4,CollageCadence.MAX_PHOTOS)
+        assertEquals(2,CollageCadence.MIN_PHOTOS)
+        repeat(20) { c.displayed(false) };assertEquals(20,c.singles)
+        c.displayed(true);assertEquals(0,c.singles)
+        repeat(5) { c.displayed(false) };c.reset();assertEquals(0,c.singles)
     }
     @Test fun candidatesRequireExactlyTheRequestedNumberReady() {
         for(count in 2..4) {

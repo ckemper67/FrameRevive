@@ -10,6 +10,7 @@ The native Android app on `main` is maintained.
 - [Updating the frame over the network](wireless-updates.md)
 - [Playback plan: what to add next](playback-plan.md)
 - [Tuning the photo-selection strategy against your own album](tuning-the-strategy.md)
+- [Collage themes (proposal)](collage-themes.md)
 - [Front buttons and pause](front-buttons.md)
 - [Hand gestures](gestures.md)
 - [HTTPS pairing](security-pairing.md)

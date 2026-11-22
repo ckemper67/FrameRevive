@@ -2,57 +2,61 @@ package com.framerevive.app
 
 import java.time.LocalDate
 
-/** Which photos a curated collage may draw from. */
-enum class CollageTheme { RECENT, DAY }
+/** One calendar day of the album: its photos in capture order. The day is the photo's own local day. */
+class AlbumDay(val epochDay: Long, val photos: List<FramePhoto>) {
+    val date: LocalDate get() = LocalDate.ofEpochDay(epochDay)
+}
 
 /**
- * A collage is one afternoon or one birthday: it draws from a single capture date, which is the only thing a
- * collage adds over the ordinary stream, where unrelated photos already alternate. Mixed keeps the option of
- * an occasional collage from the newest photos instead. Either way the other source is tried when the chosen
- * one has nothing ready, so a collage is never skipped for want of material.
+ * Which days of the album a collage may draw from, best first. Themes build on this: a collage is one day or one
+ * stretch of a day, and the day ranking keeps collages walking through the album as the deck does.
  */
 object CollageThemeSelection {
     const val MAX_MEMBERS = 4
-    /** A date offers more than the four members used, so the layout can pick the shapes that compose. */
+    /** A day offers more than the four members used, so the layout can pick the shapes that compose. */
     const val MAX_CANDIDATES = 12
-    const val SOURCE_DAY = "day"
-    const val SOURCE_MIXED = "mixed"
+    private const val DAY_MS = 86_400_000L
 
-    /** Unset or unknown means same-day, so an older install gets the behaviour the setting exists for. */
-    fun chosen(source: String, random: kotlin.random.Random = kotlin.random.Random.Default): CollageTheme =
-        if (source == SOURCE_MIXED) pick(random) else CollageTheme.DAY
-
-    fun pick(random: kotlin.random.Random = kotlin.random.Random.Default): CollageTheme =
-        if (random.nextBoolean()) CollageTheme.RECENT else CollageTheme.DAY
-
-    fun other(theme: CollageTheme): CollageTheme = if (theme == CollageTheme.RECENT) CollageTheme.DAY else CollageTheme.RECENT
+    private class Ranked(val day: AlbumDay, val readyEnough: Boolean, val fresh: Int, val meanLastShown: Long)
 
     /**
-     * Candidates from the best single capture date: a fully cached date first, then the date with the most
-     * photos, then the most recent one. More candidates than the collage needs are returned so the layout can
-     * choose shapes that compose instead of being handed whatever four photos the date happened to have.
-     * [avoidDays] keeps the same date out of two collages in a row and is dropped when no other date qualifies.
-     * With a play history in [seen], a date whose photos have not been shown beats one that has been shown, and
-     * within a date the photos shown longest ago come first, so collages walk through the album as the deck does.
+     * Days with at least [minCount] dated photos (at least [count] by default), best first, ranked by how well each
+     * can fill [count] photos: a fully downloaded day first, then the day with the most
+     * photos not yet shown, then the day shown longest ago, then the bigger day, then the more recent one.
+     * [avoidDays] keeps the same date out of two collages in a row and is dropped when no other day qualifies.
+     * Days are grouped with plain arithmetic, not a calendar conversion per photo, which stalled the UI thread.
+     */
+    fun rankedDays(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
+                   avoidDays: Set<LocalDate> = emptySet(), seen: Map<String, PlayRecord> = emptyMap(), minCount: Int = count): List<AlbumDay> {
+        require(count in 2..4 && minCount in 2..count)
+        val groups = HashMap<Long, ArrayList<FramePhoto>>()
+        for (p in album) {
+            if (!p.dated || p.id in avoid) continue
+            groups.getOrPut(Math.floorDiv(p.takenMs + p.offsetMs, DAY_MS)) { ArrayList() } += p
+        }
+        fun rank(excluded: Set<Long>): List<AlbumDay> = groups.entries
+            .filter { (day, photos) -> day !in excluded && photos.size >= minCount }
+            .map { (day, photos) ->
+                Ranked(AlbumDay(day, photos.sortedBy { it.takenMs }), photos.count { it.id in cached } >= count,
+                    minOf(count, photos.count { it.id !in seen }), photos.sumOf { seen[it.id]?.lastShownMs ?: 0L } / photos.size)
+            }
+            .sortedWith(compareByDescending<Ranked> { it.readyEnough }.thenByDescending { it.fresh }.thenBy { it.meanLastShown }
+                .thenByDescending { it.day.photos.size }.thenByDescending { it.day.epochDay })
+            .map { it.day }
+        val avoided = avoidDays.map { it.toEpochDay() }.toSet()
+        return rank(avoided).ifEmpty { if (avoided.isEmpty()) emptyList() else rank(emptySet()) }
+    }
+
+    /**
+     * Candidates from the best single capture date: downloaded photos first, then the ones shown longest ago, so a
+     * collage is not handed whatever four photos the date happened to have. See [rankedDays].
      */
     fun bestDay(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
                 avoidDays: Set<LocalDate> = emptySet(), limit: Int = MAX_CANDIDATES,
                 seen: Map<String, PlayRecord> = emptyMap()): List<FramePhoto> {
         require(count in 2..4 && limit in count..MAX_CANDIDATES)
-        // A set membership test: asking the filesystem for every photo is what stalled the UI thread.
-        fun ready(p: FramePhoto) = p.id in cached
-        val candidates = album.filter { it.id !in avoid }
-        fun pick(excluded: Set<LocalDate>): List<FramePhoto>? {
-            val day = candidates.groupBy { it.date() }.filter { (date, photos) -> date !in excluded && photos.size >= count }
-                .entries.sortedWith(compareByDescending<Map.Entry<LocalDate, List<FramePhoto>>> { entry -> entry.value.count { ready(it) } >= count }
-                    .thenByDescending { entry -> minOf(count, entry.value.count { it.id !in seen }) }
-                    .thenBy { entry -> entry.value.sumOf { seen[it.id]?.lastShownMs ?: 0L } / entry.value.size }
-                    .thenByDescending { it.value.size }
-                    .thenByDescending { it.key })
-                .firstOrNull() ?: return null
-            val (cached, uncached) = day.value.sortedBy { seen[it.id]?.lastShownMs ?: -1L }.partition { ready(it) }
-            return (cached + uncached).take(limit)
-        }
-        return pick(avoidDays) ?: pick(emptySet()) ?: emptyList()
+        val day = rankedDays(album, count, cached, avoid, avoidDays, seen).firstOrNull() ?: return emptyList()
+        val (ready, other) = day.photos.sortedBy { seen[it.id]?.lastShownMs ?: -1L }.partition { it.id in cached }
+        return (ready + other).take(limit)
     }
 }
