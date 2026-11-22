@@ -26,6 +26,23 @@ class MainActivity : Activity() {
     private val cacheLock = Any()
     private val preloader by lazy { PhotoPreloader<FramePhoto>({ it.id + it.url }, { cached(it).exists() }, { p, current -> ensureCached(p,current) }, { onPhotoArrived() }) }
 
+    /**
+     * Where the dates go. On each picture they label their own caption inside the photo; under the group they
+     * form one bottom line, the way Google's frame shows a group, so a same-day group reads as a single date.
+     */
+    private fun refreshCaption(slide: FrameSlide?) {
+        val pattern = DateTimeFormatter.ofPattern("MMMM d, yyyy")
+        val grouped = prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_UNDER_GROUP
+        val line = when {
+            slide == null -> ""
+            slide.mode == SlideMode.SINGLE -> slide.photos.firstOrNull()?.takeIf { it.dated }?.date()?.format(pattern).orEmpty()
+            grouped -> slide.photos.filter { it.dated }.map { it.date() }.distinct().sorted().joinToString(" · ") { it.format(pattern) }
+            else -> ""
+        }
+        caption.text = line
+        caption.visibility = if (line.isNotEmpty() && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
+    }
+
     /** Repaints a slide drawn with a placeholder, once per arrival, so a failed fetch cannot spin the UI. */
     private fun onPhotoArrived() {
         if(placeholderPhotos.isEmpty()) return
@@ -601,8 +618,7 @@ class MainActivity : Activity() {
         // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,
         // so no text ever lands in the paddings. Undated album entries get no label rather than January 1970.
         val first=slide.photos.first()
-        caption.text=if(slide.mode == SlideMode.SINGLE && first.dated) first.date().format(DateTimeFormatter.ofPattern("MMMM d, yyyy")) else ""
-        caption.visibility=if(caption.text.isNotEmpty() && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
+        refreshCaption(slide)
         if(priorityIds.removeAll(slide.photos.map { it.id }.toSet())) prefs.edit().putStringSet("priorityIds",priorityIds.toSet()).apply()
     }
     private fun trimCache() = synchronized(cacheLock) {
@@ -689,7 +705,8 @@ class MainActivity : Activity() {
                     val d=resources.displayMetrics
                     // Multi-photo slides cover the frame with the least cropping the photos allow.
                     FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
-                        prefs.getBoolean("date",true),::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
+                        prefs.getBoolean("date",true) && prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_ON_PICTURE,
+                        ::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
@@ -900,6 +917,7 @@ class MainActivity : Activity() {
             "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
+            "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
@@ -931,6 +949,7 @@ class MainActivity : Activity() {
             "diagnostics" to listOf(
                 "FrameRevive ${FrameWeb.VERSION}", "Android API ${android.os.Build.VERSION.SDK_INT}",
                 "Playback paused: $playbackPaused",
+                "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
