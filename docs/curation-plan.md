@@ -1,7 +1,9 @@
 # Plan: curation and presentation overhaul
 
-Status: proposed, not started. Written from the code on `show-pair` (build 67 era), then revised after an
-independent review (see "Review notes" at the end).
+Status (2026-11-22): Phases 0 to 2 are mostly built on branch `curation-phase-2` (on `origin`) and deployed to the
+frame once. Open: the `recentCount` rename, `ensureSeasonal()` still in the activity, and all of Phases 3 and 4. Each
+phase section below carries its own progress notes. Written from the code on `show-pair` (build 67 era), then
+revised after an independent review (see "Review notes" at the end).
 
 ## Why
 

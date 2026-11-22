@@ -16,6 +16,24 @@ first and why it failed, so the next person does not repeat it.
 Verified on the frame: 0.5.25 build 44 went from upload to installed in about three seconds with nothing
 touching the panel, and the same worked again after a full reboot.
 
+## Uploading from a script (macOS)
+
+The page's own JavaScript does two POSTs; a script can do the same. Take the controls link from the frame
+(it carries the key, so keep it out of shared logs and chats).
+
+1. Fetch the certificate the frame presents and compare its SHA-256 fingerprint with the one on the frame (or
+   the copy already trusted in your keychain, `security find-certificate -a -c framerevive -Z`). Send the key
+   only after they match.
+   `echo | openssl s_client -connect <host>:8765 2>/dev/null | sed -n '/BEGIN CERT/,/END CERT/p' > frame.pem`
+   then `openssl x509 -in frame.pem -noout -fingerprint -sha256`.
+2. Upload: `curl --cacert frame.pem -X POST -H 'Content-Type: application/vnd.android.package-archive'
+   --data-binary @app-debug.apk '<controls link>&action=uploadApk'`. The reply says "verified" or why not.
+3. Install: `curl --cacert frame.pem -X POST -d action=installApk '<controls link>'`, then read the Debug page.
+
+A sandboxed shell may fail to resolve the `.local` name (`DNSServiceGetAddrInfo failed -65563`); that is the
+sandbox blocking mDNS, not the frame. The version shown on the page comes from `FrameWeb.VERSION`, which must
+be kept in step with `versionName`.
+
 ## What Android 10 allows, and what it does not
 
 - A normal app cannot install silently. `PackageInstaller` requires a user action unless the caller is

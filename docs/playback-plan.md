@@ -24,13 +24,14 @@ everything below:
 | Quality gate | Sharpness vs album median, exposure, contrast — 256px pass, persisted | `PhotoQuality`, `photo-quality.json` |
 | Brightness per photo | Already measured (`PhotoScore.mean`) | same |
 | Season/"this week in history" | Yes — memories within ±N days of today's date | `PhotoSelection.distance` |
-| Shuffle without replacement | **Within one playlist only** — reshuffles on rebuild | `PhotoSelection.playlist` |
-| Whole-album coverage | **No** — candidates are the newest 300 plus the seasonal window | same |
-| Burst/event grouping | No | — |
+| Shuffle without replacement | Yes - recent and seasonal pools are decks over a persisted play history (curation Phases 1-2) | `PhotoSelection.playlist`, `PhotoDeck` |
+| Whole-album coverage | Yes - the deck reaches the whole album, never-shown photos first | `PhotoDeck` |
+| Burst/event grouping | Yes - one event pass limits bursts and drops near-duplicates | `Bursts` |
 | Time-of-day mood, colour harmony | No (brightness is measured but unused for this) | — |
 | Pan/zoom, face detection, filmstrip, then-&-now | No | — |
 
-The single most consequential gap is not on the idea list, it is in that table: **of 15,479 photos, only the
+Historical note: the next paragraph describes the gap as it was before the deck. It is closed now (see
+`curation-plan.md`). The single most consequential gap was not on the idea list, it was in that table: **of 15,479 photos, only the
 newest 300 and the seasonal slice are ever eligible.** With `recentCount = 300` and a ±14-day window, most of
 the album will never appear. "Deck" and "decay" both point at it.
 
