@@ -26,23 +26,6 @@ class MainActivity : Activity() {
     private val cacheLock = Any()
     private val preloader by lazy { PhotoPreloader<FramePhoto>({ it.id + it.url }, { cached(it).exists() }, { p, current -> ensureCached(p,current) }, { onPhotoArrived() }) }
 
-    /**
-     * Where the dates go. On each picture they label their own caption inside the photo; under the group they
-     * form one bottom line, the way Google's frame shows a group, so a same-day group reads as a single date.
-     */
-    private fun refreshCaption(slide: FrameSlide?) {
-        val pattern = DateTimeFormatter.ofPattern("MMMM d, yyyy")
-        val grouped = prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_UNDER_GROUP
-        val line = when {
-            slide == null -> ""
-            slide.mode == SlideMode.SINGLE -> slide.photos.firstOrNull()?.takeIf { it.dated }?.date()?.format(pattern).orEmpty()
-            grouped -> slide.photos.filter { it.dated }.map { it.date() }.distinct().sorted().joinToString(" · ") { it.format(pattern) }
-            else -> ""
-        }
-        caption.text = line
-        caption.visibility = if (line.isNotEmpty() && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
-    }
-
     /** Repaints a slide drawn with a placeholder, once per arrival, so a failed fetch cannot spin the UI. */
     private fun onPhotoArrived() {
         if(placeholderPhotos.isEmpty()) return
@@ -73,6 +56,10 @@ class MainActivity : Activity() {
     private var lastCollageTheme: CollageTheme? = null
     private var lastCollageDay: java.time.LocalDate? = null
     private var recentIds: Set<String> = emptySet()
+    private val placeholder by lazy { android.graphics.Bitmap.createBitmap(8,8,android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF20242B.toInt()) } }
+    private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
+    @Volatile private var mainTick = System.currentTimeMillis()
+    @Volatile private var mainStall = ""
     private val qualityScores = java.util.concurrent.ConcurrentHashMap<String, Float>()
     @Volatile private var qualityDirty = false
     @Volatile private var qualityPending = 0
@@ -147,6 +134,12 @@ class MainActivity : Activity() {
         window.attributes = window.attributes.apply { screenBrightness = FrameSchedule.awakeBrightness(prefs.getInt("brightness",55)) }
         enterFullscreen()
         client = PrivatePhotosClient(this)
+        // The cache naming scheme changed; drop files named under the old one once.
+        if(prefs.getString("cacheNaming","") != FrameCache.NAMING) {
+            File(filesDir,"photo-cache").deleteRecursively()
+            prefs.edit().putString("cacheNaming",FrameCache.NAMING).apply()
+        }
+        startWatchdog()
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         image = FramePhotoView(this).apply {
             gentleTransitions = prefs.getBoolean("gentleTransitions", true)
@@ -463,6 +456,13 @@ class MainActivity : Activity() {
         return PairSelection.orientation(d.widthPixels, d.heightPixels)
     }
     private fun bitmap(p:FramePhoto,maxEdge:Int=2400):android.graphics.Bitmap {
+        // Downloading on the UI thread is what freezes the whole frame when a fetch is slow, and a frozen UI
+        // thread also stops installs, previews and pause from ever running. Render a placeholder instead and
+        // let the preloader fetch it; the slide is repainted when the file arrives.
+        if(android.os.Looper.myLooper() == android.os.Looper.getMainLooper() && !cached(p).exists()) {
+            placeholderPhotos[p.id]=p; preloader.plan(listOf(p))
+            return placeholder
+        }
         ensureCached(p)
         return synchronized(cacheLock) {
             val file=cached(p); file.setLastModified(System.currentTimeMillis())
@@ -783,9 +783,6 @@ class MainActivity : Activity() {
             "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
-            "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
-            "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
-                "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
             "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
@@ -815,7 +812,6 @@ class MainActivity : Activity() {
             "diagnostics" to listOf(
                 "FrameRevive ${FrameWeb.VERSION}", "Android API ${android.os.Build.VERSION.SDK_INT}",
                 "Playback paused: $playbackPaused",
-                "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Preloading: $preloadSummary",
@@ -929,9 +925,12 @@ class MainActivity : Activity() {
                                     CollageTheme.DAY -> CollageThemeSelection.bestDay(photos,count,quality,emptySet(),setOfNotNull(lastCollageDay))
                                     CollageTheme.RECENT -> photos.filter { it.id in recentIds }
                                 }
+                                val notes=mutableListOf<String>()
                                 for(theme in listOf(source,CollageThemeSelection.other(source))) {
-                                    val pool=poolFor(theme).filter(ready)
+                                    val all=poolFor(theme)
+                                    val pool=all.filter(ready)
                                     val fitting=CollageSelection.choose(count,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,emptySet())
+                                    notes += "$theme pool=${all.size} cached=${pool.size} fitted=${fitting.size}"
                                     if(fitting.size in 2..4) {
                                         handler.removeCallbacks(advance)
                                         lastCollageTheme=theme
@@ -945,7 +944,8 @@ class MainActivity : Activity() {
                                     preloader.plan(poolFor(source).take(6))
                                     handler.postDelayed({ attempt(tries-1) },2500)
                                 }
-                            } catch (_: Exception) { }
+                                prefs.edit().putString("previewNote", notes.joinToString("; ") + " tries=$tries").apply()
+                            } catch (e: Exception) { prefs.edit().putString("previewNote", "error: ${e.message}").apply() }
                         }
                     }
                     attempt(6)
