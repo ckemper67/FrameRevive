@@ -64,6 +64,75 @@ class PlaybackSimulation {
         }
     }
 
+    private class SlideReport(val slides: Int, val singles: Int, val pairs: Int, val collages: Int, val collagesDue: Int,
+                              val recentFallbacks: Int, val skippedCollages: Int, val outsideQueue: Int, val repeatedSlots: Int,
+                              val coverage: Double)
+
+    /** A mix of shapes like a phone album: mostly landscape, a third portrait, a few squares. */
+    private fun shape(p: FramePhoto) = when (p.id.hashCode().mod(20)) {
+        in 0..11 -> CollageLayout.Size(1200, 800)
+        in 12..18 -> CollageLayout.Size(800, 1200)
+        else -> CollageLayout.Size(1000, 1000)
+    }
+
+    /** Drives the real chooser the way the activity does: rebuild an exhausted queue, ask for a slide, record it. */
+    private fun runSlides(settings: CycleSettings, slides: Int, seed: Int, source: String = CollageThemeSelection.SOURCE_DAY,
+                          pairs: Boolean = true, collageEvery: Int = 20): SlideReport {
+        val random = Random(seed)
+        val photos = album(random)
+        val byRecency = photos.sortedByDescending { it.takenMs }
+        val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
+        val allIds = photos.map { it.id }.toSet()
+        val ctx = SlideContext(photos, allIds, { true }, ::shape, { true }, emptyMap(), 1920, 1080, true, collageEvery, source, pairs)
+        val chooser = SlideChooser(random)
+        val history = HashMap<String, PlayRecord>()
+        var last: FrameSlide? = null
+        var clock = 0L
+        var singles = 0; var pairCount = 0; var collages = 0; var due = 0; var fallbacks = 0; var skipped = 0
+        var outside = 0; var repeated = 0
+        val cycleIds = HashSet<String>(); val cyclePlays = HashMap<String, Int>()
+        fun closeCycle() { repeated += cyclePlays.values.sumOf { it - 1 }; cyclePlays.clear(); cycleIds.clear() }
+        repeat(slides) {
+            if (chooser.index >= chooser.playlist.size) {
+                closeCycle()
+                val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
+                    { null }, emptySet(), random).playlist
+                chooser.load(cycle, byRecency.take(settings.recentCount).map { it.id }.toSet())
+                cycleIds += cycle.map { it.id }
+            }
+            val wasDue = chooser.cadence.due(collageEvery)
+            val slide = chooser.next(ctx, last)!!
+            if (wasDue) { due++; if (!slide.collage) skipped++ }
+            when (slide.mode) {
+                SlideMode.SINGLE -> singles++
+                SlideMode.PAIR -> pairCount++
+                SlideMode.COLLAGE -> {
+                    collages++
+                    if (source == CollageThemeSelection.SOURCE_DAY && chooser.lastCollageTheme == CollageTheme.RECENT) fallbacks++
+                    outside += slide.photos.count { it.id !in cycleIds }
+                    chooser.cadence.collageShown()
+                }
+            }
+            chooser.cadence.displayed(slide.collage)
+            for (p in slide.photos) { cyclePlays.merge(p.id, 1, Int::plus); PhotoDeck.recorded(history, listOf(p.id), clock) }
+            clock += 30_000; last = slide
+        }
+        closeCycle()
+        return SlideReport(slides, singles, pairCount, collages, due, fallbacks, skipped, outside, repeated, PhotoDeck.stats(photos, history).percentShown / 100.0)
+    }
+
+    @Test fun presentationMixReport() {
+        for ((name, pairs) in listOf("pairs on" to true, "pairs off" to false)) {
+            val r = runSlides(CycleSettings(), slides = 2400, seed = 7, pairs = pairs)
+            println("sim mix ($name): slides=${r.slides} singles=${r.singles} pairs=${r.pairs} collages=${r.collages} " +
+                "due=${r.collagesDue} skipped=${r.skippedCollages} recentFallback=${r.recentFallbacks} " +
+                "collagePhotosOutsideQueue=${r.outsideQueue} repeatedSlots=${r.repeatedSlots} coverage=${"%.3f".format(r.coverage)}")
+            assertEquals(r.slides, r.singles + r.pairs + r.collages)
+            assertTrue("collages fall due about every twenty slides", r.collages > 0)
+            if (!pairs) assertEquals(0, r.pairs)
+        }
+    }
+
     @Test fun defaultsReport() {
         val reports = run(CycleSettings(), cycles = 5, seed = 7)
         reports.forEachIndexed { i, r ->

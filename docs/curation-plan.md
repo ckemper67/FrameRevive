@@ -87,6 +87,21 @@ no hashes or sharpness scores). Presentation mix needs the `showNext` extraction
 
 Every repeat is in the seasonal half, which confirms problem 1. With 100% recent there are none (tested).
 
+Slide-level baseline: `SlideChooser` driven for 2,400 slides (about four cycles), same album, every photo
+cached and usable, landscape frame 1920x1080, shapes 60% landscape / 35% portrait / 5% square, collage every
+20 singles from the same-day source.
+
+| Pairs | Singles | Pairs | Collages | Collages due | Skipped | RECENT fallbacks | Collage photos outside the queue | Repeated slots | Coverage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| on | 2011 | 275 | 114 | 114 | 0 | 0 | 342 of 342 | 1089 | 11.0% |
+| off | 2286 | 0 | 114 | 114 | 0 | 0 | 342 of 342 | 1259 | 8.0% |
+
+Reading: every collage photo (342 of 342) comes from outside the cycle's queue, so collages bypass the deck,
+burst limit and priority queue (problem 2). Pairs are about 11% of slides and cost coverage nothing; with
+pairs off the same slide count covers less, because nothing is consumed two at a time. Skips and RECENT
+fallbacks are zero only because every photo is cached here; on the frame they depend on what has downloaded,
+so Phase 2 should report them from the controls page too.
+
 Done when the simulation runs in `testDebugUnitTest` and baseline numbers are recorded here.
 Risk: extraction changes behavior; the characterization tests guard it.
 
