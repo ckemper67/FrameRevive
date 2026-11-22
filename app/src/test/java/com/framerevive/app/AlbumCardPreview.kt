@@ -22,7 +22,7 @@ class AlbumCardPreview {
         val rounds = (System.getenv("FRAMEREVIVE_PREVIEW_ROUNDS") ?: "20").toInt()
         val today = LocalDate.now()
         val nowMs = System.currentTimeMillis()
-        val cycle = CycleSettings()
+        val cycle = AlbumFixture.cycleSettings()
         val byRecency = photos.sortedByDescending { it.takenMs }
         val seasonal = PhotoSelection.seasonal(photos, today, cycle.memoryDays)
         val history = HashMap<String, PlayRecord>()
@@ -38,7 +38,7 @@ class AlbumCardPreview {
         val settings = AlbumStats.Settings(cycle.roundSize, cycle.recentPercent, cycle.memoryDays, AlbumFixture.secondsPerPhoto(), AlbumFixture.awakeHours())
         val card = AlbumCard.html(AlbumStats.compute(photos, today, history, nowMs, settings, seasonal))
         val page = FrameWeb.render(FrameWeb.State(
-            mapOf("roundSize" to "${cycle.roundSize}", "memoryDays" to "${cycle.memoryDays}", "recentPercent" to "${cycle.recentPercent}",
+            mapOf("memoryDays" to "${cycle.memoryDays}", "recentPercent" to "${cycle.recentPercent}",
                 "memoryPercent" to "${100 - cycle.recentPercent}", "recencyBias" to "somewhat", "skipBlurry" to "medium", "collageEvery" to "20",
                 "collageSource" to "day", "deckSummary" to "Preview of a real album after $rounds rounds of play."),
             setOf("shared"), albumHtml = card))

@@ -89,4 +89,8 @@ class PhotoMixTest {
         assertEquals(0,PhotoSelection.memorySlots(300,0))
         assertEquals("never past the longest cycle",PhotoSelection.MAX_CYCLE-300,PhotoSelection.memorySlots(300,1))
     }
+    @Test fun theRoundSizeIsFixedAtThreeHundred() {
+        assertEquals(300,PlaybackEngine.ROUND_SIZE)
+        assertEquals(PlaybackEngine.ROUND_SIZE,CycleSettings().roundSize)
+    }
 }

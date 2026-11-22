@@ -72,4 +72,11 @@ class FrameWebTest {
         assertTrue(page.indexOf("id=\"albumStats\"") < page.indexOf("class=\"save-bar\""))
         assertFalse(FrameWeb.render(FrameWeb.State(emptyMap(),emptySet())).contains("albumStats"))
     }
+    @Test fun theRoundSizeIsNotASettingAnyMore() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("roundSize" to "300","memoryDays" to "14"),emptySet()))
+        assertFalse(page.contains("Photos per round"))
+        assertFalse(page.contains("name=\"roundSize\""))
+        assertTrue("the memories window is still offered",page.contains("name=\"memoryDays\""))
+        assertTrue(page.contains("Photos not yet shown come first; memories use"))
+    }
 }

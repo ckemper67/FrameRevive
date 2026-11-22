@@ -48,7 +48,8 @@ access key, and error messages have both removed.
      photos they hold, which the first line reports);
    - **slots from the last 6 months**: how often recent photos come up.
 
-   Time is converted to days at the frame's pace. Set `FRAMEREVIVE_SECONDS` (seconds per photo) and
+   The reports also plan at that pace, as the frame does (a plan of about one awake day's photos), and time is
+   converted to days at the same pace. Set `FRAMEREVIVE_SECONDS` (seconds per photo) and
    `FRAMEREVIVE_AWAKE_HOURS` to your frame's settings; the controls page's "Your album" card shows the photos a
    day it works out from them. The defaults are the app's own, 30 seconds and 15 hours, which is 1,800 photos a
    day. A slower frame (240 seconds for 16 hours is 240 a day) takes much longer to get through an album, which

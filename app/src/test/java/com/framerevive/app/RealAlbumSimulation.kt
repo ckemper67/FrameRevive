@@ -104,7 +104,7 @@ class RealAlbumSimulation {
         val today = LocalDate.now()
         println(albumLine(photos!!))
         for (recency in Recency.entries) {
-            for (line in report(photos, today, CycleSettings(recency = recency), "favor-newer=${recency.id}", listOf(1, 5, 10, 20))) println(line)
+            for (line in report(photos, today, AlbumFixture.cycleSettings(recency), "favor-newer=${recency.id}", listOf(1, 5, 10, 20))) println(line)
         }
     }
 }

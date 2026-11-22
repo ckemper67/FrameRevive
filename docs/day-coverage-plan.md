@@ -206,7 +206,11 @@ the shortfall goes to the next pool (the same rule the memories use now). That i
 recent pictures more often": as often as the recent pool can supply without nagging.
 
 Consequences:
-- "Photos per round" stops being a user setting; the round becomes an internal planning batch (still 300).
+- "Photos per round" stops being a user setting; the round becomes an internal planning batch (still 300). Done
+  2026-11-22: removed from the controls page, the save handler and the diagnostics. The plan is sized from the pace
+  instead (`PlaybackEngine.plannedSlots`): an awake day's photos times 1.6, between 300 and 2,000, rebuilt at the
+  start of each day, when it runs out and when the pace changes. At 240 photos a day that is 384 (192 recent, 192
+  memories at a 50% mix).
 - "Favor newer photos" (the weighted draw) is retired; the recent period replaces it. A hard edge at six months
   is acceptable because it is a share of slots, not a per-photo chance: a photo crossing the edge moves from
   one pool to the other once, and nothing jumps on screen.
@@ -355,7 +359,7 @@ instead of treating the whole 14-day window alike.
    never act. Suggested: do not build it. Agree?
 4. **Mix:** three numbers (recent, this time of year, everything else) replacing the single slider?
 5. **Day boundary:** the photo's local calendar day. Fine?
-6. **Retire "Favor newer photos" and hide "Photos per round"?** Suggested yes.
+6. **Retire "Favor newer photos"?** Suggested yes, when the recent period replaces it. ("Photos per round" is already gone.)
 7. **Memories share:** at 50% each memory photo returns every 9.6 days and each of the 171 memory days is visited
    every 1.4 days, 12 times the airtime per photo of everything else. At 25% a memory photo returns every 19
    days and a memory day every 2.9; at 15%, every 32 and 4.8. Do you want memories to be a large part of what you

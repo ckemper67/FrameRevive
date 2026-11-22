@@ -45,6 +45,10 @@
 - Emit the frame certificate's validity dates as UTCTime, as RFC 5280 requires before 2050. Strict validators (curl/OpenSSL, some trust stores) rejected the old GeneralizedTime encoding with "format error in certificate's notBefore field"; the identity rotates once on upgrade.
 - Pick a collage source per collage at random: either the newest photos or a single capture date, preferring
   dates whose photos are already cached, with the other source as the fallback. No new setting.
+- Remove the Photos per round setting. The frame plans about one awake day at a time: the photos it shows in a day at
+  its pace, with a margin for skipped near-identical frames, kept between 300 and 2,000. The plan is rebuilt when the
+  date changes, when it runs out, and when the seconds per photo or the sleep schedule are changed, so it follows the
+  pace instead of a fixed number.
 - Stop showing near-identical frames: from a burst the frame now picks the photos farthest apart in time, treats
   photos taken within two minutes of one chosen as the same picture (the perceptual hash exists for few photos), and
   measures gaps in absolute time so a timezone change cannot split a burst. On a real 15,000-photo album the share of

@@ -17,7 +17,7 @@ stream, unchanged.
 ## Decisions so far (owner, 2026-11-22)
 
 - Streams are **separate albums**, as on the Lenovo.
-- **Settings are shared** by all streams: seconds per photo, mix, photos per round, age bias, dates, blur. The
+- **Settings are shared** by all streams: seconds per photo, mix, age bias, dates, blur. The
   only differences between streams come from what the stream's kind implies (feeds, below), never from a
   per-stream settings screen. This drops the old optional step for per-stream settings.
 - **Feeds** (RSS or Atom) become a second kind of stream. They pull only pictures that match the frame's

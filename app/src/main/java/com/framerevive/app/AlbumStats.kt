@@ -72,7 +72,7 @@ object AlbumStats {
 
     /** How often the frame's current rules bring a photo back, from the album size, the memory pool and the settings. */
     fun pace(photoCount: Int, memoryPool: Int, settings: Settings): Pace {
-        val slotsPerDay = if (settings.secondsPerPhoto > 0) 3600.0 / settings.secondsPerPhoto * settings.awakeHours else 0.0
+        val slotsPerDay = PlaybackEngine.slotsPerDay(settings.secondsPerPhoto, settings.awakeHours)
         val p = settings.recentPercent
         val share = when {
             memoryPool == 0 || p >= 100 -> 0.0

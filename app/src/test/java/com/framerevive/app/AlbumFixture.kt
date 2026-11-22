@@ -32,5 +32,9 @@ object AlbumFixture {
      */
     fun secondsPerPhoto(): Int = System.getenv("FRAMEREVIVE_SECONDS")?.toIntOrNull()?.takeIf { it > 0 } ?: 30
     fun awakeHours(): Double = System.getenv("FRAMEREVIVE_AWAKE_HOURS")?.toDoubleOrNull()?.takeIf { it > 0 } ?: 15.0
-    fun slotsPerDay(): Double = 3600.0 / secondsPerPhoto() * awakeHours()
+    fun slotsPerDay(): Double = PlaybackEngine.slotsPerDay(secondsPerPhoto(), awakeHours())
+
+    /** Cycle settings as the frame would build them at this pace, so reports match what the frame plans. */
+    fun cycleSettings(recency: Recency = Recency.DEFAULT, recentPercent: Int = 50, memoryDays: Int = 14): CycleSettings =
+        CycleSettings(PlaybackEngine.roundSizeFor(PlaybackEngine.plannedSlots(secondsPerPhoto(), awakeHours()), recentPercent), memoryDays, recentPercent, recency)
 }

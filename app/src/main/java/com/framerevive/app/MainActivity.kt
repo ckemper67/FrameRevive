@@ -331,18 +331,26 @@ class MainActivity : Activity() {
         historyWriter.execute { runCatching { PhotoDeck.save(historyFile, snapshot) } }
     }
 
+    private fun awakeHours() = FrameSchedule.awakeHours(prefs.getBoolean("schedule", false),
+        LocalTime.parse(prefs.getString("sleepStart", "22:00")), LocalTime.parse(prefs.getString("sleepEnd", "07:00")))
+    /** Photos one plan lines up: an awake day's worth at the current pace, with a margin. */
+    private fun plannedSlots() = PlaybackEngine.plannedSlots(prefs.getInt("seconds",30), awakeHours())
+    private fun cycleSettings(): CycleSettings {
+        val recentPercent = prefs.getInt("recentPercent",50)
+        return CycleSettings(PlaybackEngine.roundSizeFor(plannedSlots(), recentPercent), prefs.getInt("memoryDays",14), recentPercent,
+            Recency.of(prefs.getString("recencyBias",null)))
+    }
+
     private fun rebuild() {
         day = LocalDate.now()
-        val cycle = PlaybackEngine.buildCycle(photos, day,
-            CycleSettings(prefs.getInt("roundSize",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50),
-                Recency.of(prefs.getString("recencyBias",null))),
+        val cycle = PlaybackEngine.buildCycle(photos, day, cycleSettings(),
             playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
             hashes, { qualityScores[it.id] }, priorityIds, keep = sharpnessGate())
         deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
         burstHeld = cycle.burstHeld
-        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("roundSize",300)).map { it.id }.toSet(), cycle.excluded)
+        chooser.load(cycle.playlist, photosByRecency.take(PlaybackEngine.RECENT_COLLAGE_POOL).map { it.id }.toSet(), cycle.excluded)
         preloader.clear()
     }
     private fun checkAlbumCount() {
@@ -413,6 +421,7 @@ class MainActivity : Activity() {
                     val sec = seconds.text.toString().toInt(); require(sec in 10..300) { "Choose 10–300 seconds." }
                     val light = brightness.text.toString().toInt(); require(light in 5..100) { "Choose 5–100 percent brightness." }
                     val wasSleeping = FramePower.shouldSleep(this) || sleeping
+                    val plannedBefore = plannedSlots()
                     prefs.edit().putString("sleepStart", a.toString()).putString("sleepEnd", b.toString())
                         .putBoolean("schedule", enabled.isChecked).putBoolean("crop", crop.isChecked).putBoolean("blurBackground",blur.isChecked)
                         .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light)
@@ -421,6 +430,8 @@ class MainActivity : Activity() {
                     image.scaleType = if (crop.isChecked) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                     caption.visibility = if (date.isChecked) View.VISIBLE else View.GONE
                     FramePower.schedule(this); checkSchedule(wakeFromSchedule = wasSleeping); dialog.dismiss()
+                    // A new pace needs a plan of a different size.
+                    if (plannedSlots() != plannedBefore) { rebuild(); planPreloads() }
                 } catch (e: Exception) { Toast.makeText(this, e.message ?: "Use HH:mm times.", Toast.LENGTH_LONG).show() }
             }
         }
@@ -843,10 +854,8 @@ class MainActivity : Activity() {
 
     /** The "Your album" card, from the catalog, the play history and the settings as they stand when the page is opened. */
     private fun albumCardHtml(): String {
-        val awake = FrameSchedule.awakeHours(prefs.getBoolean("schedule", false),
-            LocalTime.parse(prefs.getString("sleepStart", "22:00")), LocalTime.parse(prefs.getString("sleepEnd", "07:00")))
-        val settings = AlbumStats.Settings(prefs.getInt("roundSize",300), prefs.getInt("recentPercent",50), prefs.getInt("memoryDays",14),
-            prefs.getInt("seconds",30), awake)
+        val settings = AlbumStats.Settings(cycleSettings().roundSize, prefs.getInt("recentPercent",50), prefs.getInt("memoryDays",14),
+            prefs.getInt("seconds",30), awakeHours())
         val seasonal = if (seasonalKey == seasonalKeyNow()) seasonalPhotos else null
         return AlbumCard.html(AlbumStats.compute(photos, LocalDate.now(), playHistory, System.currentTimeMillis(), settings, seasonal))
     }
@@ -876,7 +885,7 @@ class MainActivity : Activity() {
         val text = mapOf(
             "holidayTheme" to prefs.getString("holidayTheme", "off").orEmpty(),
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
-            "roundSize" to prefs.getInt("roundSize",300).toString(), "recencyBias" to Recency.of(prefs.getString("recencyBias",null)).id, "skipBlurry" to sharpness().id, "memoryDays" to prefs.getInt("memoryDays",14).toString(),
+            "recencyBias" to Recency.of(prefs.getString("recencyBias",null)).id, "skipBlurry" to sharpness().id, "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
@@ -914,7 +923,7 @@ class MainActivity : Activity() {
                 "Playback paused: $playbackPaused",
                 "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
-                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; ${prefs.getInt("roundSize",300)} photos per round; favor newer: ${Recency.of(prefs.getString("recencyBias",null)).id}; memories +/-${prefs.getInt("memoryDays",14)} days",
+                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; favor newer: ${Recency.of(prefs.getString("recencyBias",null)).id}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
                 "Collages since start: ${chooser.collageReport()}",
@@ -977,10 +986,9 @@ class MainActivity : Activity() {
                     val brightness = fields["brightness"]?.toIntOrNull() ?: prefs.getInt("brightness",55)
                     require(brightness in 5..100) { "Choose 5 to 100 percent brightness." }
                     val changingMix=fields["mixSettings"] == "1"
-                    val roundSize=if(changingMix) fields["roundSize"]?.toIntOrNull() ?: error("Photos per round required") else prefs.getInt("roundSize",300)
                     val memoryDays=if(changingMix) fields["memoryDays"]?.toIntOrNull() ?: error("Memory window required") else prefs.getInt("memoryDays",14)
                     val recentPercent=if(changingMix) fields["recentPercent"]?.toIntOrNull() ?: error("Mix required") else prefs.getInt("recentPercent",50)
-                    require(roundSize in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
+                    require(memoryDays in 0..60 && recentPercent in 0..100)
                     val collageEvery=if(changingMix) fields["collageEvery"]?.toIntOrNull() ?: prefs.getInt("collageEvery",20) else prefs.getInt("collageEvery",20)
                     val collageSource=if(changingMix) fields["collageSource"]?.takeIf { it in setOf(CollageThemeSelection.SOURCE_DAY,CollageThemeSelection.SOURCE_MIXED) }
                         ?: CollageThemeSelection.SOURCE_DAY else prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty()
@@ -988,6 +996,7 @@ class MainActivity : Activity() {
                     val holidayTheme = fields["holidayTheme"] ?: prefs.getString("holidayTheme", "off").orEmpty()
                     require(holidayTheme in HolidayTheme.labels) { "Choose a holiday theme from the list." }
                     val wasSleeping = FramePower.shouldSleep(this) || sleeping
+                    val plannedBefore = plannedSlots()
                     val edit = prefs.edit().putString("sleepStart",start.toString()).putString("sleepEnd",end.toString())
                         .putBoolean("schedule",fields.containsKey("schedule")).putBoolean("crop",fields.containsKey("crop"))
                         .putBoolean("date",fields.containsKey("date")).putInt("seconds",seconds).putInt("brightness",brightness)
@@ -998,7 +1007,7 @@ class MainActivity : Activity() {
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
-                    if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("roundSize",roundSize).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
+                    if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).putString("collageSource",collageSource)
                         .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()
@@ -1011,7 +1020,7 @@ class MainActivity : Activity() {
                             image.scaleType = if (prefs.getBoolean("crop",false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                             refreshCaption(lastSlide)
                             caption.visibility = if (lastSlide?.collage != true && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
-                            if(changingMix) { generation++; setPhotoLoading(false); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }
+                            if(changingMix || plannedSlots() != plannedBefore) { generation++; setPhotoLoading(false); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }
                             checkSchedule(wakeFromSchedule = wasSleeping)
                         }
                     }, 1000)
