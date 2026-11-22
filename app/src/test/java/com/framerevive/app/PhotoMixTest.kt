@@ -81,4 +81,12 @@ class PhotoMixTest {
         assertTrue("even reaches them about half the time",oldShare(Recency.EVEN) in 0.3..0.7)
         assertTrue(oldShare(Recency.SOMEWHAT) < oldShare(Recency.EVEN))
     }
+    @Test fun theMemoryQuotaFollowsTheSliderAndIsBounded() {
+        assertEquals(300,PhotoSelection.memorySlots(300,50))
+        assertEquals(100,PhotoSelection.memorySlots(300,75))
+        assertEquals(900,PhotoSelection.memorySlots(300,25))
+        assertEquals("the ends pick a pool outright",0,PhotoSelection.memorySlots(300,100))
+        assertEquals(0,PhotoSelection.memorySlots(300,0))
+        assertEquals("never past the longest cycle",PhotoSelection.MAX_CYCLE-300,PhotoSelection.memorySlots(300,1))
+    }
 }

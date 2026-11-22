@@ -841,6 +841,16 @@ class MainActivity : Activity() {
         holidayBorder.showTheme(HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now()))
     }
 
+    /** The "Your album" card, from the catalog, the play history and the settings as they stand when the page is opened. */
+    private fun albumCardHtml(): String {
+        val awake = FrameSchedule.awakeHours(prefs.getBoolean("schedule", false),
+            LocalTime.parse(prefs.getString("sleepStart", "22:00")), LocalTime.parse(prefs.getString("sleepEnd", "07:00")))
+        val settings = AlbumStats.Settings(prefs.getInt("roundSize",300), prefs.getInt("recentPercent",50), prefs.getInt("memoryDays",14),
+            prefs.getInt("seconds",30), awake)
+        val seasonal = if (seasonalKey == seasonalKeyNow()) seasonalPhotos else null
+        return AlbumCard.html(AlbumStats.compute(photos, LocalDate.now(), playHistory, System.currentTimeMillis(), settings, seasonal))
+    }
+
     private fun remotePage(): String {
         val preloadEntries=preloader.snapshot()
         val preloadSummary=if(!prefs.getBoolean("preload",true)) "Disabled" else if(sleeping || !active) "Waiting while frame is inactive" else "Ready: ${preloadEntries.count { it.status == PhotoPreloader.Status.READY }} · Loading: ${preloadEntries.count { it.status == PhotoPreloader.Status.LOADING }} · Queued: ${preloadEntries.count { it.status == PhotoPreloader.Status.QUEUED }} · Failed: ${preloadEntries.count { it.status == PhotoPreloader.Status.FAILED }}"
@@ -931,7 +941,8 @@ class MainActivity : Activity() {
                 "Private links and credentials omitted."
             ).joinToString("\n")
         )
-        return FrameWeb.render(FrameWeb.State(text, flags, updateHtml=updater.panel(), recoveryHtml=RecoveryGuide.html()))
+        return FrameWeb.render(FrameWeb.State(text, flags, updateHtml=updater.panel(), recoveryHtml=RecoveryGuide.html(),
+            albumHtml=runCatching { albumCardHtml() }.getOrDefault("")))
     }
 
     private fun applyRemote(fields: Map<String, String>): String {

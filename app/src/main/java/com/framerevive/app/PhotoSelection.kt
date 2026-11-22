@@ -45,6 +45,15 @@ object PhotoSelection {
     const val MAX_CYCLE = 20000
 
     /**
+     * Memory slots a round asks for next to [roundSize] recent ones when the slider is at [recentPercent]. A pool
+     * too small to fill them contributes only what it has. The ends (0 and 100 percent) pick one pool outright and
+     * ask for none here.
+     */
+    fun memorySlots(roundSize: Int, recentPercent: Int): Int =
+        if (recentPercent <= 0 || recentPercent >= 100) 0
+        else Math.round(roundSize * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - roundSize)
+
+    /**
      * One cycle: a deck of recent photos and a deck of seasonal memories, spread evenly through each other.
      * Both pools are decks, so within a cycle no photo plays twice. The slider sets how many memory slots a
      * cycle would like; a pool too small to fill them contributes only what it has, and the shortfall goes
@@ -66,7 +75,7 @@ object PhotoSelection {
         if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, roundSize, random, weight = weigher)
         val memoryOrder = seasonal.sortedByDescending { it.takenMs }
         if (recentPercent == 0) return PhotoDeck.deck(memoryOrder, seen, memoryOrder.size, random)
-        val wanted = Math.round(roundSize * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - roundSize)
+        val wanted = memorySlots(roundSize, recentPercent)
         val memories = PhotoDeck.deck(memoryOrder, seen, wanted, random)
         val latest = PhotoDeck.deck(pool, seen, (roundSize + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random, weight = weigher)
         return interleave(latest, memories)

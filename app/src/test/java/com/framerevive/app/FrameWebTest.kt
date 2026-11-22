@@ -61,8 +61,15 @@ class FrameWebTest {
     @Test fun theMixSettingsOfferTheBlurChoiceWithTheStoredOneSelected() {
         val page=FrameWeb.render(FrameWeb.State(mapOf("skipBlurry" to "medium"),emptySet()))
         assertTrue(page.contains("Skip blurry photos"))
-        assertTrue(page.contains("<option value=\"medium\" selected>Blurry ones"))
+        assertTrue(page.contains("<option value=\"medium\" selected>Blurry photos"))
         assertFalse(page.contains("<option value=\"off\" selected>Off: show everything"))
         assertTrue(page.contains("name=\"skipBlurry\""))
+    }
+    @Test fun theAlbumCardSitsInTheMixTabBeforeTheSaveBarAndIsOptional() {
+        val card="<article class=\"card\" id=\"albumStats\"><h2>Your album</h2></article>"
+        val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet(),albumHtml=card))
+        assertEquals(1,Regex("id=\"albumStats\"").findAll(page).count())
+        assertTrue(page.indexOf("id=\"albumStats\"") < page.indexOf("class=\"save-bar\""))
+        assertFalse(FrameWeb.render(FrameWeb.State(emptyMap(),emptySet())).contains("albumStats"))
     }
 }

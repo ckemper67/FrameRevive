@@ -57,6 +57,25 @@ access key, and error messages have both removed.
 itself, rerun, and compare the lines. The same file's `report` function also takes the "big day" size (20
 photos) and the "recent" period (6 months) as parameters.
 
+## Previewing the "Your album" card
+
+The controls page has a "Your album" card in the Photo mix tab: the album's shape (photos, days, photos per day,
+how much sits on big days), the last 1 to 24 months, each year, the memory pool for today, what the frame has
+shown so far, and what the current settings mean in time ("a memory photo comes back about every 1.3 days"). It
+is built from `AlbumStats` (the numbers) and `AlbumCard` (the HTML), pure Kotlin with no Android types, so it
+can be developed on the dev machine against a real album:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests '*AlbumCardPreview*' --rerun -i
+```
+
+This writes `local/controls-preview.html` (the whole controls page with the card in it) and
+`local/album-card.html` (the card alone, with the page's styles); open either in a browser. The play history
+comes from running the real selection pipeline for `FRAMEREVIVE_PREVIEW_ROUNDS` rounds (default 20, about six
+days of display; 0 shows a frame that has shown nothing yet). To iterate, edit the wording or layout in
+`AlbumCard.kt`, or the numbers in `AlbumStats.kt`, rerun, and refresh the browser. The frame builds the same card
+when its controls page is opened, so it needs a new build only once the card is as wanted.
+
 ## What the simulation does not model
 
 - Near-duplicate and burst thinning (it uses no image hashes) and the sharpness gate (no scores).

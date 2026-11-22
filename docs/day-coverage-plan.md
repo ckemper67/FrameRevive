@@ -181,6 +181,14 @@ Consequences:
 
 ### C. Say what it means in time
 
+Status (2026-11-22, uncommitted, not deployed): the album card is built as pure Kotlin (`AlbumStats`, `AlbumCard`)
+and previewed against the real album on the dev machine (`AlbumCardPreview`, see `tuning-the-strategy.md`). It
+reports the album's shape, the recent windows, the memory pool, what the frame has shown (photos and days reached,
+days not shown in the last 30 days) and, for the current rules, how often a photo returns: the memory share from
+the real quota formula (`PhotoSelection.memorySlots`), the album size and the photos shown a day (seconds per
+photo and the awake hours from the sleep schedule). The readout for the planned pools and day exponent is added
+when those settings exist.
+
 Percentages hide the consequence. On the controls page, next to the settings, show what they produce, from the
 album's own numbers: "a photo from the last 6 months returns about every 4 days, an older one about every 11;
 every day in the album is shown at least once every 2 days." These are computed from the pool sizes, the

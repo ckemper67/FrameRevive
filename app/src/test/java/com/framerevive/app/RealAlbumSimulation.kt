@@ -1,6 +1,5 @@
 package com.framerevive.app
 
-import java.io.File
 import java.time.LocalDate
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
@@ -18,22 +17,6 @@ class RealAlbumSimulation {
     private val dayMs = 86_400_000L
     /** About 1,800 photos a day: 30 seconds each for 15 awake hours, the default schedule. */
     private val slotsPerDay = 1800
-
-    /** The script's format: a header, then `takenMs,offsetMs` per photo. */
-    private fun parse(lines: List<String>): List<FramePhoto> {
-        require(lines.firstOrNull()?.trim() == "takenMs,offsetMs") { "Not an album dates file (expected the header takenMs,offsetMs)." }
-        return lines.drop(1).filter { it.isNotBlank() }.mapIndexed { i, line ->
-            val (taken, offset) = line.trim().split(',')
-            FramePhoto("r$i", "u", taken.toLong(), offset.toLong())
-        }
-    }
-
-    private fun load(): List<FramePhoto>? {
-        val named = System.getenv("FRAMEREVIVE_ALBUM_DATES")
-        val file = (if (named != null) listOf(named) else listOf("../local/album-dates.csv", "local/album-dates.csv"))
-            .map(::File).firstOrNull { it.isFile } ?: return null
-        return parse(file.readLines())
-    }
 
     private fun dayOf(p: FramePhoto) = Math.floorDiv(p.takenMs + p.offsetMs, dayMs)
 
@@ -73,14 +56,14 @@ class RealAlbumSimulation {
     }
 
     @Test fun theScriptsFileFormatIsParsed() {
-        val photos = parse(listOf("takenMs,offsetMs", "1000,0", "", "2000,3600000"))
+        val photos = AlbumFixture.parse(listOf("takenMs,offsetMs", "1000,0", "", "2000,3600000"))
         assertEquals(listOf(1000L, 2000L), photos.map { it.takenMs })
         assertEquals(3_600_000L, photos[1].offsetMs)
         assertEquals(2, photos.map { it.id }.distinct().size)
     }
 
     @Test fun aFileInAnotherFormatIsRefused() {
-        val refused = runCatching { parse(listOf("id,url", "1,2")) }
+        val refused = runCatching { AlbumFixture.parse(listOf("id,url", "1,2")) }
         assertTrue(refused.isFailure)
     }
 
@@ -97,7 +80,7 @@ class RealAlbumSimulation {
     }
 
     @Test fun realAlbumReport() {
-        val photos = load()
+        val photos = AlbumFixture.load()
         assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
         val today = LocalDate.now()
         println(albumLine(photos!!))

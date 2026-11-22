@@ -73,4 +73,12 @@ class PhotoSelectionTest {
         assertFalse(FrameSchedule.isSleeping(LocalTime.of(14,0), LocalTime.of(10,0), LocalTime.of(14,0)))
         assertFalse(FrameSchedule.isSleeping(LocalTime.NOON, LocalTime.NOON, LocalTime.NOON))
     }
+    @Test fun awakeHoursAreTheDayLessTheSleepWindow() {
+        val ten=LocalTime.of(22,0); val seven=LocalTime.of(7,0)
+        assertEquals(15.0,FrameSchedule.awakeHours(true,ten,seven),1e-9)
+        assertEquals("a daytime sleep window",16.0,FrameSchedule.awakeHours(true,LocalTime.of(9,0),LocalTime.of(17,0)),1e-9)
+        assertEquals("no schedule means always awake",24.0,FrameSchedule.awakeHours(false,ten,seven),1e-9)
+        assertEquals("equal times mean no sleep",24.0,FrameSchedule.awakeHours(true,ten,ten),1e-9)
+        assertEquals(23.5,FrameSchedule.awakeHours(true,LocalTime.of(3,0),LocalTime.of(3,30)),1e-9)
+    }
 }
