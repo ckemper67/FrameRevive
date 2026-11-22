@@ -43,8 +43,8 @@ If the chosen source has nothing ready, the other source is tried for that colla
 
 ## Soft shots are left out
 
-Lenovo's frame claimed to ignore blurry or grainy shots when it chose photos. Collages here use a quality gate
-built from one grey-scale pass over a 256-pixel analysis copy; the analysis is cached per photo, so each photo
+Lenovo's frame claimed to ignore blurry or grainy shots when it chose photos. Every slide here (single photos,
+pairs and collages) goes through a quality gate built from one grey-scale pass over a 256-pixel analysis copy; the analysis is cached per photo, so each photo
 is scored once, on a background worker, in roughly ten milliseconds including the small decode.
 
 Measured on the metric (341x256 test frame): a sharp reference image scores 0.0101, the same image blurred by a
@@ -55,8 +55,8 @@ magnitude, and the maths itself costs about 0.5 ms per frame on a desktop CPU.
   it measures structure rather than brightness.
 - **Contrast, mean brightness and clipped fraction** come from the same pass and reject frames that are flat,
   nearly black, nearly white or mostly blown out.
-- Blur is judged **comparatively**: a photo is dropped only when it is below 12% of the album's median
-  sharpness, and only once at least 30 photos have been scored and the album median is above 0.004. Without
+- Blur is judged **comparatively**: by default a photo is dropped when it is below 25% of the album's median
+  sharpness (the "Skip blurry photos" setting also offers off, 12%, the original collage rule, and 40%), and only once at least 30 photos have been scored and the album median is above 0.004. Without
   enough evidence, nothing is dropped — a soft-but-legitimate album is never filtered against itself.
 
 Scores live in `photo-quality.json` next to the photo cache. Debug reports how many photos are scored, the

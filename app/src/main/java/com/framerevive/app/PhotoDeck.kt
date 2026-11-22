@@ -60,18 +60,34 @@ object PhotoDeck {
      *
      * [byRecency] must already be sorted newest capture first. Building that order here cost 650 ms on the
      * frame's UI thread for a 15,479-photo album, so it is prepared once when the album is read.
+     *
+     * With a [weight], the photos not yet shown are drawn by that weight from the whole pool instead of from
+     * the newest [window]; see [Recency]. Shown photos still return least recently shown first.
      */
     fun deck(byRecency: List<FramePhoto>, seen: Map<String, PlayRecord>, count: Int, random: Random = Random.Default,
-             window: Int = count * WINDOW_MULTIPLIER): List<FramePhoto> {
+             window: Int = count * WINDOW_MULTIPLIER, weight: ((FramePhoto) -> Double)? = null): List<FramePhoto> {
         if (byRecency.isEmpty() || count <= 0) return emptyList()
         // Nothing shown yet: the album's own order is the deck, with no need to partition 15,000 photos.
-        if (seen.isEmpty()) return byRecency.take(minOf(maxOf(window, count), byRecency.size)).shuffled(random).take(count)
+        if (seen.isEmpty()) return if (weight != null) draw(byRecency, count, weight, random)
+            else byRecency.take(minOf(maxOf(window, count), byRecency.size)).shuffled(random).take(count)
         val unseen = byRecency.filter { it.id !in seen }
         val shown = byRecency.filter { it.id in seen }.sortedBy { seen[it.id]?.lastShownMs ?: 0L }
         // Unseen photos are taken first: shuffling a window that still contains shown photos would let them
         // push out photos that have never appeared, which is the case this deck exists to fix.
-        if (unseen.size >= count) return unseen.take(window.coerceIn(count, unseen.size)).shuffled(random).take(count)
+        if (unseen.size >= count) return if (weight != null) draw(unseen, count, weight, random)
+            else unseen.take(window.coerceIn(count, unseen.size)).shuffled(random).take(count)
         return unseen.shuffled(random) + shown.take(count - unseen.size)
+    }
+
+    /**
+     * [count] photos drawn without replacement, each with a chance in proportion to its weight (Efraimidis and
+     * Spirakis: give each photo the key ln(u)/weight and keep the largest). The result is shuffled, so the
+     * order carries no trace of the weights.
+     */
+    private fun draw(pool: List<FramePhoto>, count: Int, weight: (FramePhoto) -> Double, random: Random): List<FramePhoto> {
+        if (pool.size <= count) return pool.shuffled(random)
+        val keys = DoubleArray(pool.size) { i -> kotlin.math.ln(random.nextDouble().coerceAtLeast(1e-12)) / weight(pool[i]).coerceAtLeast(1e-9) }
+        return pool.indices.sortedByDescending { keys[it] }.take(count).map { pool[it] }.shuffled(random)
     }
 
     fun stats(photos: List<FramePhoto>, seen: Map<String, PlayRecord>): DeckStats {

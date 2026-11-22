@@ -9,7 +9,9 @@ class SlideContext(
     val size: (FramePhoto) -> CollageLayout.Size?, val usableForCollage: (FramePhoto) -> Boolean,
     val hashes: Map<String, Long>, val width: Int, val height: Int,
     val collages: Boolean, val collageEvery: Int, val collageSource: String, val pairs: Boolean,
-    val seen: Map<String, PlayRecord> = emptyMap())
+    val seen: Map<String, PlayRecord> = emptyMap(),
+    /** Whether a photo is sharp enough to show; unscored photos pass. */
+    val sharp: (FramePhoto) -> Boolean = { true })
 
 /** The queue as a presentation sees it: what is coming, what it may not take, and how to take it. */
 interface SlideQueue {
@@ -51,7 +53,7 @@ class PairPresentation : Presentation {
     override val mode = SlideMode.PAIR
     override fun due(ctx: SlideContext, cadence: CollageCadence) = ctx.pairs
     override fun propose(ctx: SlideContext, queue: SlideQueue, avoid: Set<String>, last: FrameSlide?): List<FramePhoto>? =
-        PairSelection.choose(ctx.width, ctx.height, queue.upcoming, ctx.size, ctx.isCached, avoid).takeIf { it.size == 2 }
+        PairSelection.choose(ctx.width, ctx.height, queue.upcoming, ctx.size, { ctx.isCached(it) && ctx.sharp(it) }, avoid).takeIf { it.size == 2 }
 }
 
 /** A collage as Preview built it, with the notes the controls page shows. */
@@ -221,6 +223,10 @@ class SlideChooser(random: Random = Random.Default, extra: List<Presentation> = 
     /** The next slide, or null when the queue is empty. The caller rebuilds an exhausted queue first. */
     fun next(ctx: SlideContext, last: FrameSlide?): FrameSlide? {
         if (playlist.isEmpty()) return null
+        // A photo can be scored after the cycle was built (scoring happens as it downloads), so the last check
+        // is here: a soft photo at the head is passed over, not shown.
+        while (true) { val first = head ?: break; if (ctx.sharp(first)) break; advance() }
+        if (head == null) return null
         val avoid = last?.photos?.map { it.id }?.toSet().orEmpty()
         for (presentation in presentations) {
             if (!presentation.due(ctx, cadence)) continue

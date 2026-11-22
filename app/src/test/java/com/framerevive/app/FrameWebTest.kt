@@ -51,4 +51,18 @@ class FrameWebTest {
         val report=page.substringAfter("id=\"diagnosticReport\"").substringBefore("</pre>")
         assertFalse(report.contains("photos.app.goo.gl"))
     }
+    @Test fun theMixSettingsOfferTheRecencyChoiceWithTheStoredOneSelected() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("recencyBias" to "even"),emptySet()))
+        assertTrue(page.contains("Favor newer photos"))
+        assertTrue(page.contains("<option value=\"even\" selected>"))
+        assertFalse(page.contains("<option value=\"newest\" selected>"))
+        assertTrue(page.contains("name=\"recencyBias\""))
+    }
+    @Test fun theMixSettingsOfferTheBlurChoiceWithTheStoredOneSelected() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("skipBlurry" to "medium"),emptySet()))
+        assertTrue(page.contains("Skip blurry photos"))
+        assertTrue(page.contains("<option value=\"medium\" selected>Blurry ones"))
+        assertFalse(page.contains("<option value=\"off\" selected>Off: show everything"))
+        assertTrue(page.contains("name=\"skipBlurry\""))
+    }
 }

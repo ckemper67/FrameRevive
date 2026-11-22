@@ -221,4 +221,34 @@ class SlideChooserTest {
         assertEquals(1, chooser.index)
         assertEquals(singles.size, chooser.playlist.size)
     }
+
+    private fun SlideContext.withSharp(sharp: (FramePhoto) -> Boolean) =
+        SlideContext(photos, cachedIds, isCached, size, usableForCollage, hashes, width, height, collages, collageEvery, collageSource, pairs, seen, sharp)
+
+    @Test fun aSoftPhotoAtTheHeadIsPassedOverNotShown() {
+        val chooser = chooser(singles)
+        val slide = chooser.next(context(photos = singles, collages = false).withSharp { it.id != "s0" && it.id != "s1" }, null)!!
+        assertEquals("s2", slide.photos.single().id)
+        assertEquals(3, chooser.index)
+    }
+
+    @Test fun aSoftPhotoIsNeverPartOfAPair() {
+        val queue = (0 until 6).map { FramePhoto("q$it", "u", (22_000L + it) * day) }
+        val chooser = chooser(queue)
+        val slide = chooser.next(context(photos = queue, collages = false, pairs = true, size = { portrait }).withSharp { it.id != "q1" }, null)!!
+        assertEquals(SlideMode.PAIR, slide.mode)
+        assertEquals(listOf("q0", "q2"), slide.photos.map { it.id })
+    }
+
+    @Test fun aQueueOfOnlySoftPhotosGivesNoSlideInsteadOfAShowingOne() {
+        assertEquals(null, chooser(singles).next(context(photos = singles, collages = false).withSharp { false }, null))
+    }
+
+    @Test fun softPhotosAreNotClaimedSoTheyAreNotCountedAsShown() {
+        val chooser = chooser(singles)
+        val history = HashMap<String, PlayRecord>()
+        val slide = chooser.next(context(photos = singles, collages = false).withSharp { it.id != "s0" }, null)!!
+        chooser.claim(slide.photos.map { it.id }, history, 1L)
+        assertTrue("s0" !in history)
+    }
 }

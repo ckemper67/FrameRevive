@@ -149,6 +149,28 @@ class PlaybackSimulation {
         }
     }
 
+    @Test fun recencyReport() {
+        val results = Recency.entries.associateWith { r -> run(CycleSettings(recency = r), cycles = 5, seed = 7) }
+        fun share(reports: List<Report>, older: Boolean): Double {
+            val all = reports.flatMap { it.years.entries }
+            val total = all.sumOf { it.value }.toDouble()
+            return all.filter { (it.key <= today.year - 3) == older }.sumOf { it.value } / total
+        }
+        for ((r, reports) in results) {
+            val years = reports.flatMap { it.years.entries }.groupBy({ it.key }, { it.value }).mapValues { it.value.sum() }.toSortedMap()
+            println("sim recency ${r.id}: years=$years olderThanThreeYears=${"%.3f".format(share(reports, true))} " +
+                "coverage=${"%.3f".format(reports.last().coverage)} repeated=${reports.sumOf { it.repeatedSlots }}")
+        }
+        val older = results.mapValues { share(it.value, true) }
+        assertTrue("somewhat favours newer photos more than even does", older.getValue(Recency.SOMEWHAT) < older.getValue(Recency.EVEN))
+        assertTrue("even reaches older years more than the hard window does", older.getValue(Recency.EVEN) > older.getValue(Recency.NEWEST))
+        for ((r, reports) in results) {
+            assertEquals("no repeats with ${r.id}", 0, reports.sumOf { it.repeatedSlots })
+            assertTrue("coverage with ${r.id} is not worse than the hard window",
+                reports.last().coverage >= results.getValue(Recency.NEWEST).last().coverage - 0.011)
+        }
+    }
+
     @Test fun defaultsReport() {
         val reports = run(CycleSettings(), cycles = 5, seed = 7)
         reports.forEachIndexed { i, r ->

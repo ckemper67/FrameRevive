@@ -22,6 +22,21 @@ data class PhotoScore(val sharpness: Float, val contrast: Float, val mean: Float
     }
 }
 
+/** How much of the album's blur the frame tolerates, as a share of the album's typical sharpness. */
+enum class Sharpness(val id: String, val fraction: Float?) {
+    OFF("off", null),
+    /** Only photos far softer than the album's typical one; the original collage-only rule. */
+    LIGHT("light", PhotoQuality.SOFT_FRACTION),
+    /** Also photos that are plainly unsharp without being very blurry; the default since the owner disliked those too. */
+    MEDIUM("medium", 0.25f),
+    STRONG("strong", 0.40f);
+
+    companion object {
+        val DEFAULT = MEDIUM
+        fun of(id: String?): Sharpness = entries.firstOrNull { it.id == id } ?: DEFAULT
+    }
+}
+
 object PhotoQuality {
     const val ANALYSIS_EDGE = 256
     /** Fewer scored photos than this leave the album without a usable median. */
@@ -64,12 +79,31 @@ object PhotoQuality {
     /** Stores a rejected photo without inventing a score, so the album median is not dragged down. */
     fun stored(score: PhotoScore): Float = if (score.visible) score.sharpness else REJECTED
 
-    /** Whether a remembered score may appear in a collage; unknown photos are kept until scored. */
-    fun acceptable(stored: Float?, median: Float?): Boolean {
+    /**
+     * Whether a remembered score may be shown; unknown photos are kept until scored. A [fraction] of null
+     * switches the blur test off, but black, blown-out and flat photos are still refused.
+     */
+    fun acceptable(stored: Float?, median: Float?, fraction: Float? = SOFT_FRACTION): Boolean {
         if (stored == null) return true
         if (stored == REJECTED) return false
-        if (median == null || median < MIN_MEDIAN) return true
-        return stored >= median * SOFT_FRACTION
+        if (fraction == null || median == null || median < MIN_MEDIAN) return true
+        return stored >= median * fraction
+    }
+
+    /** A photo's sharpness as a share of the album's typical one, or null when either is unknown or rejected. */
+    fun relative(stored: Float?, median: Float?): Float? =
+        if (stored == null || stored < 0f || median == null || median <= 0f) null else stored / median
+
+    /** How many scored photos fall below each cut, as counts for the bands under, between and over [cuts]. */
+    fun bands(scores: Collection<Float>, median: Float?, cuts: List<Float> = listOf(0.12f, 0.25f, 0.40f, 0.60f)): List<Int>? {
+        if (median == null || median <= 0f) return null
+        val out = IntArray(cuts.size + 1)
+        for (score in scores) {
+            if (score < 0f) continue
+            val share = score / median
+            out[cuts.indexOfFirst { share < it }.let { if (it < 0) cuts.size else it }]++
+        }
+        return out.toList()
     }
 
     /** Median of the remembered scores, ignoring rejections; null until enough photos are scored. */

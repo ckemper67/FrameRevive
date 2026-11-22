@@ -78,4 +78,41 @@ class PhotoQualityTest {
         assertEquals(0.16f,PhotoQuality.median(scores)!!,0.0001f)
         assertEquals(0.01f,PhotoQuality.median(List(30) { 0.01f })!!,0.0001f)
     }
+
+    @Test fun theStrictnessPresetsSetTheShareOfTypicalSharpnessKept() {
+        val median = 0.03f
+        assertTrue(PhotoQuality.acceptable(0.01f, median, Sharpness.LIGHT.fraction))
+        assertFalse("a quarter of typical is kept by light but not by medium", PhotoQuality.acceptable(0.006f, median, Sharpness.MEDIUM.fraction))
+        assertTrue(PhotoQuality.acceptable(0.006f, median, Sharpness.LIGHT.fraction))
+        assertFalse(PhotoQuality.acceptable(0.010f, median, Sharpness.STRONG.fraction))
+        assertTrue(PhotoQuality.acceptable(0.010f, median, Sharpness.MEDIUM.fraction))
+    }
+
+    @Test fun offStillRefusesUnusableExposureButNotBlur() {
+        assertTrue(PhotoQuality.acceptable(0.0001f, 0.03f, Sharpness.OFF.fraction))
+        assertFalse(PhotoQuality.acceptable(PhotoQuality.REJECTED, 0.03f, Sharpness.OFF.fraction))
+        assertTrue("unscored photos always pass", PhotoQuality.acceptable(null, 0.03f, Sharpness.STRONG.fraction))
+    }
+
+    @Test fun aPhotoIsRelatedToTheAlbumsTypicalSharpness() {
+        assertEquals(0.5f, PhotoQuality.relative(0.015f, 0.03f)!!, 1e-6f)
+        assertEquals(null, PhotoQuality.relative(null, 0.03f))
+        assertEquals(null, PhotoQuality.relative(PhotoQuality.REJECTED, 0.03f))
+        assertEquals(null, PhotoQuality.relative(0.01f, null))
+    }
+
+    @Test fun scoresAreCountedIntoBandsOfTypicalSharpness() {
+        val scores = listOf(0.001f, 0.002f, 0.006f, 0.010f, 0.015f, 0.040f, PhotoQuality.REJECTED)
+        assertEquals(listOf(2, 1, 1, 1, 1), PhotoQuality.bands(scores, 0.03f))
+        assertEquals(null, PhotoQuality.bands(scores, null))
+    }
+
+    @Test fun settingsComeFromStoredIdsAndDefaultToTwentyFivePercent() {
+        assertEquals(Sharpness.MEDIUM, Sharpness.of(null))
+        assertEquals(Sharpness.MEDIUM, Sharpness.of("nonsense"))
+        assertEquals(Sharpness.STRONG, Sharpness.of("strong"))
+        assertEquals(Sharpness.LIGHT, Sharpness.of("light"))
+        assertEquals(0.25f, Sharpness.DEFAULT.fraction!!, 0f)
+        assertEquals("the original collage rule stays available", PhotoQuality.SOFT_FRACTION, Sharpness.LIGHT.fraction)
+    }
 }

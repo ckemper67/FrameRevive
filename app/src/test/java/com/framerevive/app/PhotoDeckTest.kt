@@ -58,4 +58,48 @@ class PhotoDeckTest {
         assertEquals(2, stats.unseen)
         assertEquals(50, stats.percentShown)
     }
+
+    private fun pool(n: Int) = (1..n).map { FramePhoto("p$it", "u$it", it * 1000L) }
+
+    @Test fun aWeightedDrawFavoursHeavyPhotosButStillReachesLightOnes() {
+        val album = pool(200)
+        val weight: (FramePhoto) -> Double = { if (it.takenMs > 100_000L) 1.0 else 0.05 }
+        val picks = (1..40).flatMap { PhotoDeck.deck(album, emptyMap(), 50, Random(it), weight = weight) }
+        val heavy = picks.count { it.takenMs > 100_000L }
+        assertTrue("heavy photos dominate: $heavy of ${picks.size}", heavy > picks.size * 0.8)
+        assertTrue("light photos still appear", picks.size - heavy > 0)
+    }
+
+    @Test fun aWeightedRoundHasTheRequestedSizeAndNoDuplicates() {
+        val round = PhotoDeck.deck(pool(500), emptyMap(), 120, Random(3), weight = { 1.0 + it.takenMs % 7 })
+        assertEquals(120, round.size)
+        assertEquals(120, round.map { it.id }.distinct().size)
+    }
+
+    @Test fun aWeightedDrawStillTakesUnseenPhotosBeforeShownOnes() {
+        val album = pool(200)
+        val seen = (1..100).associate { "p$it" to PlayRecord(10L, 1) }
+        // Weights favour exactly the photos already shown; unseen ones must win regardless.
+        val round = PhotoDeck.deck(album, seen, 50, Random(5), weight = { if (it.takenMs <= 100_000L) 1.0 else 0.001 })
+        assertTrue(round.all { it.id !in seen })
+    }
+
+    @Test fun whenTooFewAreUnseenAWeightedDeckStillFillsWithTheLeastRecentlyShown() {
+        val album = pool(10)
+        val seen = (1..8).associate { "p$it" to PlayRecord(it * 100L, 1) }
+        val round = PhotoDeck.deck(album, seen, 5, Random(2), weight = { 1.0 })
+        assertEquals(setOf("p9", "p10", "p1", "p2", "p3"), round.map { it.id }.toSet())
+    }
+
+    @Test fun aWeightedDrawIsReproducibleForOneSeed() {
+        val a = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { 1.0 + it.takenMs % 5 })
+        val b = PhotoDeck.deck(pool(300), emptyMap(), 40, Random(11), weight = { 1.0 + it.takenMs % 5 })
+        assertEquals(a, b)
+    }
+
+    @Test fun withoutAWeightTheHardWindowIsUnchanged() {
+        val newest = (1..400).map { FramePhoto("p$it", "u", (401 - it) * 1000L) }
+        val round = PhotoDeck.deck(newest, emptyMap(), 10, Random(1))
+        assertTrue("only the newest ${10 * PhotoDeck.WINDOW_MULTIPLIER} are candidates", round.all { it.takenMs > (400 - 10 * PhotoDeck.WINDOW_MULTIPLIER) * 1000L })
+    }
 }

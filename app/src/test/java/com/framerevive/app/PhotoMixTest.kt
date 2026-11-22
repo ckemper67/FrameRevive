@@ -68,4 +68,17 @@ class PhotoMixTest {
         val result=PhotoSelection.playlist(recent+memories,today,Random(1),3,14,50,seen)
         assertEquals(setOf("m4","m5","m6"),result.filter { it.id.startsWith("m") }.map { it.id }.toSet())
     }
+    @Test fun theRecencySettingDecidesWhetherOldYearsReachTheRound() {
+        val newer=(1..500).map { p("n$it","2026-09-01") }
+        val older=(1..500).map { p("o$it","2015-01-15") }
+        val album=newer+older
+        fun oldShare(recency:Recency):Double {
+            val round=PhotoSelection.playlist(album,today,Random(4),100,14,100,emptyMap(),album.sortedByDescending { it.takenMs },null,recency)
+            return round.count { it.id.startsWith("o") }/round.size.toDouble()
+        }
+        assertEquals("the hard window never reaches past the newest 400",0.0,oldShare(Recency.NEWEST),0.0)
+        assertTrue("somewhat reaches them: ${oldShare(Recency.SOMEWHAT)}",oldShare(Recency.SOMEWHAT) > 0.0)
+        assertTrue("even reaches them about half the time",oldShare(Recency.EVEN) in 0.3..0.7)
+        assertTrue(oldShare(Recency.SOMEWHAT) < oldShare(Recency.EVEN))
+    }
 }

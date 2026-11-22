@@ -52,7 +52,7 @@ object PhotoSelection {
      */
     fun playlist(photos: List<FramePhoto>, today: LocalDate, random: Random = Random.Default, roundSize: Int = 300, memoryDays: Int = 14, recentPercent: Int = 50,
                  seen: Map<String, PlayRecord> = emptyMap(), byRecency: List<FramePhoto> = photos.sortedByDescending { it.takenMs },
-                 seasonalCandidates: List<FramePhoto>? = null): List<FramePhoto> {
+                 seasonalCandidates: List<FramePhoto>? = null, recency: Recency = Recency.DEFAULT): List<FramePhoto> {
         require(roundSize in 1..2000 && memoryDays in 0..60 && recentPercent in 0..100)
         if (photos.isEmpty()) return emptyList()
         val seasonal = seasonalCandidates ?: seasonal(photos, today, memoryDays)
@@ -62,12 +62,13 @@ object PhotoSelection {
         // The recent pool is a deck, not the newest slice: photos never shown, then the ones shown longest
         // ago, so a large album is covered instead of circling its newest few hundred.
         val pool = if (memoryIds.isEmpty()) byRecency else byRecency.filter { it.id !in memoryIds }
-        if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, roundSize, random)
+        val weigher = recency.weigher(today.toEpochDay() * 86_400_000L)
+        if (seasonal.isEmpty() || recentPercent == 100) return PhotoDeck.deck(pool, seen, roundSize, random, weight = weigher)
         val memoryOrder = seasonal.sortedByDescending { it.takenMs }
         if (recentPercent == 0) return PhotoDeck.deck(memoryOrder, seen, memoryOrder.size, random)
         val wanted = Math.round(roundSize * (100.0 - recentPercent) / recentPercent).toInt().coerceIn(0, MAX_CYCLE - roundSize)
         val memories = PhotoDeck.deck(memoryOrder, seen, wanted, random)
-        val latest = PhotoDeck.deck(pool, seen, (roundSize + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random)
+        val latest = PhotoDeck.deck(pool, seen, (roundSize + wanted - memories.size).coerceAtMost(MAX_CYCLE - memories.size), random, weight = weigher)
         return interleave(latest, memories)
     }
 

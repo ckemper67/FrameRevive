@@ -204,7 +204,41 @@ selection branches, and live and preview share one code path.
 | 4 | Then & Now (same window, years apart; not same person) | presentation |
 | 5 | Month and year caption pill, memory window presets | small, independent |
 
+Item 1, recency decay (branch `curation-phase-4`, built and tested, not deployed): the recent deck no longer
+cuts off at the newest few hundred unseen photos. Every unseen photo is a candidate, drawn by weight
+`0.05 + 0.95 * exp(-age / 180 days)` (`Recency.SOMEWHAT`), so older years surface from the first round. Photos
+never shown still come before shown ones. The weight uses millisecond arithmetic, not calendar conversion, since
+a calendar pass over 15,000 photos costs about a third of a second on the frame and `rebuild()` runs on the UI
+thread. There is a controls-page choice, "Favor newer photos": a lot (the old hard window, `newest`),
+somewhat (the new default, `somewhat`) or not at all (`even`). Simulation, five cycles, same album and seed,
+coverage 19% and zero repeats in all three:
+
+| Setting | Slides from photos older than three years | Capture years (slides) |
+| --- | --- | --- |
+| a lot (old behaviour) | 3.4% | 2022: 50, 2023: 50, 2024: 262, 2025: 1264, 2026: 1338 |
+| somewhat (new default) | 36.8% | 2018: 13 ... 2024: 266, 2025: 504, 2026: 1116 |
+| not at all | 60.9% | 2019: 336 ... 2025: 427, 2026: 343 |
+
+Also built on this branch, not on the original list: the soft-photo gate now covers every slide. It used to
+apply to collages only, so a blurry photo shown on its own was never checked. The frame reported 704 of 15,481
+photos scored, a median sharpness of 0.029, and only 11 kept out of collages, since the rule drops a photo only
+below 12% of the album's typical sharpness. Now: photos the gate refuses are not candidates when a round is
+built, a soft photo that reaches the front of the queue (scoring happens as it downloads, after the round was
+built) is passed over and not counted as shown, and pairs never include one. A controls-page choice, "Skip
+blurry photos", sets the strictness: off, only very blurry (12%, the old collage rule), blurry (25%) or
+anything noticeably soft (40%). The default is 25%: the owner also disliked photos that were unsharp but not very
+blurry, which the old 12% rule lets through. Collages share the setting, so they are stricter than before. Diagnostics now shows the count of photos in bands of typical sharpness and the
+sharpness of the photo on screen, so the right strictness can be chosen from real numbers. Black, blown-out and
+flat photos are always skipped, whatever the setting. Only scored photos can be judged: unscored ones pass.
+
+Making "somewhat" the default changes what the family sees: a lot more older photos. The previous behaviour is
+one setting away. The real deck-build time (`deck build N ms` in Diagnostics) must be read after deploying,
+since the weighted draw costs more than the old window.
+
 The Curator split happens here, when the second scoring signal (item 3) arrives.
+
+Parked by the owner: multiple photo streams (switched with an up or down hand gesture) and RSS feed streams;
+see `docs/streams-plan.md`, which is on hold.
 
 Deferred: face detection, Ken Burns, filmstrip. Dropped: colour harmony (new analysis pass and layout for
 little gain). Not possible: location captions (no GPS in the album index), person identification.

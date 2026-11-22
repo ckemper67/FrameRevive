@@ -334,9 +334,10 @@ class MainActivity : Activity() {
     private fun rebuild() {
         day = LocalDate.now()
         val cycle = PlaybackEngine.buildCycle(photos, day,
-            CycleSettings(prefs.getInt("roundSize",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50)),
+            CycleSettings(prefs.getInt("roundSize",300), prefs.getInt("memoryDays",14), prefs.getInt("recentPercent",50),
+                Recency.of(prefs.getString("recencyBias",null))),
             playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
-            hashes, { qualityScores[it.id] }, priorityIds)
+            hashes, { qualityScores[it.id] }, priorityIds, keep = ::sharpEnough)
         deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
@@ -549,8 +550,9 @@ class MainActivity : Activity() {
         }
     }
     /** Cached, and not excluded by the quality gate, for collage use. */
-    private fun usableForCollage(p: FramePhoto): Boolean =
-        p.id in cachedIds && PhotoQuality.acceptable(qualityScores[p.id], qualityMedian())
+    private fun sharpness() = Sharpness.of(prefs.getString("skipBlurry",null))
+    private fun sharpEnough(p: FramePhoto): Boolean = PhotoQuality.acceptable(qualityScores[p.id], qualityMedian(), sharpness().fraction)
+    private fun usableForCollage(p: FramePhoto): Boolean = p.id in cachedIds && sharpEnough(p)
     /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
     private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
         if (!cached(p).exists()) null else photoSize(p)
@@ -588,7 +590,7 @@ class MainActivity : Activity() {
         val d=resources.displayMetrics
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,::usableForCollage,hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
-            prefs.getBoolean("pairs",true),playHistory)
+            prefs.getBoolean("pairs",true),playHistory,::sharpEnough)
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
@@ -618,7 +620,9 @@ class MainActivity : Activity() {
         history.next()?.let { showSlide(it, fromHistory = true); return }
         if (day != LocalDate.now() || index >= playlist.size) rebuild()
         if (playlist.isEmpty()) { showControls(); return }
-        chooser.next(slideContext(),lastSlide)?.let { showSlide(it) }
+        // A queue that held only soft photos runs dry here; build a fresh cycle once rather than show nothing.
+        val slide = chooser.next(slideContext(),lastSlide) ?: run { rebuild(); chooser.next(slideContext(),lastSlide) }
+        slide?.let { showSlide(it) }
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
@@ -848,7 +852,7 @@ class MainActivity : Activity() {
         val text = mapOf(
             "holidayTheme" to prefs.getString("holidayTheme", "off").orEmpty(),
             "holidayActive" to HolidayTheme.labels[HolidayTheme.resolve(prefs.getString("holidayTheme", "off").orEmpty(), LocalDate.now())].orEmpty(),
-            "roundSize" to prefs.getInt("roundSize",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
+            "roundSize" to prefs.getInt("roundSize",300).toString(), "recencyBias" to Recency.of(prefs.getString("recencyBias",null)).id, "skipBlurry" to sharpness().id, "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
@@ -886,7 +890,7 @@ class MainActivity : Activity() {
                 "Playback paused: $playbackPaused",
                 "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
-                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; ${prefs.getInt("roundSize",300)} photos per round; memories +/-${prefs.getInt("memoryDays",14)} days",
+                "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; ${prefs.getInt("roundSize",300)} photos per round; favor newer: ${Recency.of(prefs.getString("recencyBias",null)).id}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
                 "Collages since start: ${chooser.collageReport()}",
@@ -895,7 +899,9 @@ class MainActivity : Activity() {
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",
                 "Show pairs: ${prefs.getBoolean("pairs",true)}; frame ${if (frameOrientation() == FrameOrientation.PORTRAIT) "portrait" else "landscape"}",
-                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${qualityScores.count { !PhotoQuality.acceptable(it.value, qualityMedian()) }} kept out of collages",
+                "Photo quality: ${qualityScores.size} scored · median ${qualityMedian()?.let { String.format("%.3f", it) } ?: "not yet"} · ${qualityScores.count { !PhotoQuality.acceptable(it.value, qualityMedian(), sharpness().fraction) }} kept out of every slide (skip blurry: ${sharpness().id})",
+                "Sharpness, share of typical: ${PhotoQuality.bands(qualityScores.values, qualityMedian())?.let { b -> listOf("<12%","12-25%","25-40%","40-60%","60%+").zip(b).joinToString(" ") { (label, n) -> "$label=$n" } } ?: "not enough photos scored yet"}",
+                "Sharpness on screen: ${lastSlide?.photos?.joinToString(", ") { p -> PhotoQuality.relative(qualityScores[p.id], qualityMedian())?.let { "${(it * 100).toInt()}% of typical" } ?: "not scored" } ?: "nothing shown yet"}",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
                 "Last refresh: ${time("lastSuccessfulSync")}", "Last attempt: ${time("lastSyncAttempt")}",
@@ -967,7 +973,7 @@ class MainActivity : Activity() {
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
-                    if(changingMix) edit.putInt("roundSize",roundSize).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
+                    if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("roundSize",roundSize).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery).putString("collageSource",collageSource)
                         .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     edit.commit()
