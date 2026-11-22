@@ -2,7 +2,7 @@ package com.framerevive.app
 
 /** Presentation only. All owner/Google text is escaped; HTML fragments come from our own renderers. */
 object FrameWeb {
-    const val VERSION = "0.5.25-alpha"
+    const val VERSION = "0.5.26-alpha+ck"
     data class Album(val id: String, val title: String)
     data class State(val text: Map<String, String>, val flags: Set<String>, val albums: List<Album> = emptyList(),
                      val updateHtml: String = "", val recoveryHtml: String = "")

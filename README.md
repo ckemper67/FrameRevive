@@ -4,7 +4,7 @@ A standalone Android photo-frame app for the discontinued Lenovo Smart Frame (CD
 
 **`main` is the maintained branch.** The older prototype branches are historical; start new work and builds from `main`. See the [documentation index](docs/README.md).
 
-## Current version: 0.5.25 alpha
+## Current version: 0.5.26 alpha (ck build)
 
 The tested build includes a shared Google Photos album source, automatic checks for additions, a neutral three-tab HTTPS controls page, blurred photo backgrounds, a frame clock/time-zone display, hand gestures, and front-button navigation with pause/resume.
 
