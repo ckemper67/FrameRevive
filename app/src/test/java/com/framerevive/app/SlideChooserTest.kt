@@ -112,4 +112,39 @@ class SlideChooserTest {
         assertTrue(chooser.collageDay.isEmpty())
         assertEquals(0, chooser.cadence.singles)
     }
+
+    @Test fun claimRecordsPlaysAndKeepsThosePhotosOutOfAnyCollageThisCycle() {
+        val chooser = chooser(singles + group)
+        val history = HashMap<String, PlayRecord>()
+        chooser.claim(listOf("d0", "d1"), history, 1_000L)
+        assertEquals(PlayRecord(1_000L, 1), history["d0"])
+        chooser.showSingles(5)
+        val slide = chooser.next(context(), null)!!
+        assertEquals(SlideMode.COLLAGE, slide.mode)
+        assertTrue("a photo already shown this cycle is not shown again", slide.photos.none { it.id == "d0" || it.id == "d1" })
+    }
+
+    @Test fun aNewCycleMakesClaimedPhotosEligibleAgain() {
+        val chooser = chooser(singles + group)
+        chooser.claim(group.map { it.id }, HashMap(), 1L)
+        chooser.load(singles + group, emptySet())
+        chooser.showSingles(5)
+        assertTrue(chooser.next(context(), null)!!.photos.all { it.id.startsWith("d") })
+    }
+
+    @Test fun aCollageNeverTakesWhatTheCycleThinnedOut() {
+        val chooser = SlideChooser(Random(1)).apply { load(singles, singles.map { it.id }.toSet(), group.map { it.id }.toSet()) }
+        chooser.showSingles(5)
+        val slide = chooser.next(context(), null)!!
+        assertTrue(slide.photos.none { it.id.startsWith("d") })
+        assertEquals("the chosen source had nothing eligible, so the other one served", 1, chooser.themeFallbacks)
+    }
+
+    @Test fun aCollageWithNothingUsableIsCountedAsSkipped() {
+        val chooser = chooser(singles + group)
+        chooser.showSingles(5)
+        chooser.next(context(usable = false), null)
+        assertEquals(1, chooser.collageSkips)
+        assertEquals(0, chooser.collagesChosen)
+    }
 }

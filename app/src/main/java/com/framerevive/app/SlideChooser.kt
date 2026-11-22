@@ -25,8 +25,30 @@ class SlideChooser(private val random: Random = Random.Default) {
     var lastCollageTheme: CollageTheme? = null
     var lastCollageDay: LocalDate? = null
 
+    /** Photos shown since this cycle began, and photos its thinning passes left out. A collage may take neither. */
+    private val played = HashSet<String>()
+    private var excluded: Set<String> = emptySet()
+    var collagesChosen = 0; private set
+    var collageSkips = 0; private set
+    /** Collages that took the other source because the chosen one had nothing eligible and ready. */
+    var themeFallbacks = 0; private set
+
     /** Starts a cycle from a freshly built playlist. */
-    fun load(cycle: List<FramePhoto>, recent: Set<String>) { playlist = cycle; recentIds = recent; index = 0 }
+    fun load(cycle: List<FramePhoto>, recent: Set<String>, excludedIds: Set<String> = emptySet()) {
+        playlist = cycle; recentIds = recent; index = 0
+        played.clear(); excluded = excludedIds
+    }
+
+    /**
+     * The one place a shown photo is recorded: in the play history the deck reads, and in this cycle's set so
+     * no presentation shows it again before the cycle ends. Slides replayed from history are not claimed.
+     */
+    fun claim(ids: Collection<String>, seen: MutableMap<String, PlayRecord>, now: Long) {
+        PhotoDeck.recorded(seen, ids, now)
+        played += ids
+    }
+
+    private fun ineligible(avoid: Set<String>): Set<String> = if (played.isEmpty() && excluded.isEmpty()) avoid else avoid + played + excluded
 
     /** A new album invalidates everything chosen from the old one. */
     fun resetForAlbum() { cadence.reset(); collageDay = emptyList(); lastCollageDay = null; collageTheme = null }
@@ -41,7 +63,7 @@ class SlideChooser(private val random: Random = Random.Default) {
         val planned = if (collageSoon) {
             val source = CollageThemeSelection.chosen(ctx.collageSource, random)
             if (source == CollageTheme.DAY && collageDay.size < cadence.nextCount)
-                collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, emptySet(), setOfNotNull(lastCollageDay))
+                collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(emptySet()), setOfNotNull(lastCollageDay))
             collageDay + playlist.drop(index)
         } else playlist.drop(index)
         return planned.distinctBy { it.id }.take(count)
@@ -67,7 +89,7 @@ class SlideChooser(private val random: Random = Random.Default) {
         fun poolFor(source: CollageTheme): List<FramePhoto> = when (source) {
             CollageTheme.DAY -> {
                 if (collageDay.size < cadence.nextCount)
-                    collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, avoid, setOfNotNull(lastCollageDay))
+                    collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(avoid), setOfNotNull(lastCollageDay))
                 collageDay
             }
             CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
@@ -79,12 +101,15 @@ class SlideChooser(private val random: Random = Random.Default) {
             return if (fitting.size in 2..4) fitting
                 else CollageCadence.candidates(pool, last?.photos.orEmpty(), cadence.nextCount, ctx.usableForCollage)
         }
+        val chosenTheme = theme
         var selected = collageFor(theme)
         if (selected.size !in 2..4) {
             val alternative = CollageThemeSelection.other(theme)
             collageFor(alternative).takeIf { it.size in 2..4 }?.let { selected = it; theme = alternative }
         }
-        if (selected.size !in 2..4) return null
+        if (selected.size !in 2..4) { collageSkips++; return null }
+        collagesChosen++
+        if (theme != chosenTheme) themeFallbacks++
         take(selected)
         lastCollageTheme = theme; collageTheme = null; collageDay = emptyList()
         if (theme == CollageTheme.DAY) lastCollageDay = selected.first().date()

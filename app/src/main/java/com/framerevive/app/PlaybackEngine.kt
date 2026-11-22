@@ -7,7 +7,9 @@ import kotlin.random.Random
 data class CycleSettings(val recentCount: Int = 300, val memoryDays: Int = 14, val recentPercent: Int = 50)
 
 /** One built cycle, with what each stage held back so the controls page and the simulation can report it. */
-data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, val burstHeld: Int, val deckNanos: Long)
+data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, val burstHeld: Int, val deckNanos: Long,
+                      /** Photos the cycle's thinning passes left out; no other presentation may take them either. */
+                      val excluded: Set<String> = emptySet())
 
 /**
  * Decides what comes next, with no Android types so it can run in a unit test and in the simulation. The
@@ -27,6 +29,7 @@ object PlaybackEngine {
         val deckNanos = System.nanoTime() - started
         val thinned = PhotoSimilarity.thin(normal, hashes)
         val bursts = Bursts.thin(thinned, seen, sharpness = quality)
-        return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), normal.size - thinned.size, bursts.heldBack, deckNanos)
+        val excluded = normal.map { it.id }.toHashSet().apply { removeAll(bursts.kept.map { it.id }.toSet()) }
+        return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), normal.size - thinned.size, bursts.heldBack, deckNanos, excluded)
     }
 }

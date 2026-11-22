@@ -96,9 +96,9 @@ class PlaybackSimulation {
             if (chooser.index >= chooser.playlist.size) {
                 closeCycle()
                 val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
-                    { null }, emptySet(), random).playlist
-                chooser.load(cycle, byRecency.take(settings.recentCount).map { it.id }.toSet())
-                cycleIds += cycle.map { it.id }
+                    { null }, emptySet(), random)
+                chooser.load(cycle.playlist, byRecency.take(settings.recentCount).map { it.id }.toSet(), cycle.excluded)
+                cycleIds += cycle.playlist.map { it.id }
             }
             val wasDue = chooser.cadence.due(collageEvery)
             val slide = chooser.next(ctx, last)!!
@@ -108,17 +108,17 @@ class PlaybackSimulation {
                 SlideMode.PAIR -> pairCount++
                 SlideMode.COLLAGE -> {
                     collages++
-                    if (source == CollageThemeSelection.SOURCE_DAY && chooser.lastCollageTheme == CollageTheme.RECENT) fallbacks++
                     outside += slide.photos.count { it.id !in cycleIds }
                     chooser.cadence.collageShown()
                 }
             }
             chooser.cadence.displayed(slide.collage)
-            for (p in slide.photos) { cyclePlays.merge(p.id, 1, Int::plus); PhotoDeck.recorded(history, listOf(p.id), clock) }
+            for (p in slide.photos) cyclePlays.merge(p.id, 1, Int::plus)
+            chooser.claim(slide.photos.map { it.id }, history, clock)
             clock += 30_000; last = slide
         }
         closeCycle()
-        return SlideReport(slides, singles, pairCount, collages, due, fallbacks, skipped, outside, repeated, PhotoDeck.stats(photos, history).percentShown / 100.0)
+        return SlideReport(slides, singles, pairCount, collages, due, chooser.themeFallbacks, skipped, outside, repeated, PhotoDeck.stats(photos, history).percentShown / 100.0)
     }
 
     @Test fun presentationMixReport() {
@@ -128,6 +128,7 @@ class PlaybackSimulation {
                 "due=${r.collagesDue} skipped=${r.skippedCollages} recentFallback=${r.recentFallbacks} " +
                 "collagePhotosOutsideQueue=${r.outsideQueue} repeatedSlots=${r.repeatedSlots} coverage=${"%.3f".format(r.coverage)}")
             assertEquals(r.slides, r.singles + r.pairs + r.collages)
+            assertEquals("collages obey the same no-repeat rule as singles", 0, r.repeatedSlots)
             assertTrue("collages fall due about every twenty slides", r.collages > 0)
             if (!pairs) assertEquals(0, r.pairs)
         }

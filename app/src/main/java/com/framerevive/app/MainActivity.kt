@@ -346,7 +346,7 @@ class MainActivity : Activity() {
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
         burstHeld = cycle.burstHeld
-        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet())
+        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet(), cycle.excluded)
         preloader.clear()
     }
     private fun checkAlbumCount() {
@@ -600,7 +600,7 @@ class MainActivity : Activity() {
         if(!fromHistory) {
             collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown()
             // Record what was on the panel so the deck can prefer what has not been seen.
-            PhotoDeck.recorded(playHistory, slide.photos.map { it.id }, System.currentTimeMillis())
+            chooser.claim(slide.photos.map { it.id }, playHistory, System.currentTimeMillis())
             if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
         }
         // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,

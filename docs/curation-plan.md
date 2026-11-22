@@ -146,6 +146,17 @@ slots from 3 photos) and were rewritten to the new rules.
   per-photo state goes in a separate file with its own version field.
 - Rename `recentCount` in code to a deck-size name; settle the UI label separately.
 
+Progress (branch `curation-phase-2`), first slice: `SlideChooser.claim` is now the only place a play is
+recorded (the activity calls it from `markDisplayed`). The chooser keeps the set of photos shown this cycle and
+the set the cycle's similarity and burst passes left out (`CycleBuild.excluded`); `bestDay` receives both as
+`avoid`, so a collage cannot take a photo that was already played or thinned out. The chooser also counts
+collages chosen, skipped and served by the other source. Slide level, same album and seed, pairs on: repeated
+slots 287 -> 0, coverage 17% -> 18%, 339 collage photos still come from outside the queue but are all eligible.
+Collages taking the occasional different photo is accepted (no switch to the old behaviour). Not done yet:
+photos outside the queue are not ranked by play history across cycles (a same-day group can return in the next
+cycle), merging `Bursts` and `PhotoSimilarity` into one event concept, the `recentCount` rename, and showing
+skip and fallback counts on the controls page.
+
 Done when collage photos obey the same repeat and burst limits as singles and coverage is no worse than the
 Phase 0 baseline. Risk: a strict gate starves same-day collages; keep the RECENT fallback and report how
 often it triggers.
