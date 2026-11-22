@@ -11,6 +11,7 @@ The native Android app on `main` is maintained.
 - [Playback plan: what to add next](playback-plan.md)
 - [Tuning the photo-selection strategy against your own album](tuning-the-strategy.md)
 - [Collage themes (proposal)](collage-themes.md)
+- [Favorites: star, seed from Google, show more often (proposal)](favorites-plan.md)
 - [Front buttons and pause](front-buttons.md)
 - [Hand gestures](gestures.md)
 - [HTTPS pairing](security-pairing.md)

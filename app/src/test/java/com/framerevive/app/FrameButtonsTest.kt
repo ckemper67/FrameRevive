@@ -30,4 +30,15 @@ class FrameButtonsTest {
         b.down(24,7000)
         assertEquals(FrameButtons.Action.NONE,b.up(24,7100,true))
     }
+    @Test fun theStarButtonCanStarThePhotoInsteadOfPausing() {
+        val b = FrameButtons(); b.shortPress = FrameButtons.Action.TOGGLE_FAVORITE
+        b.down(295,100)
+        assertEquals(FrameButtons.Action.TOGGLE_FAVORITE,b.up(295,600))
+        // Holding still opens the controls, and releasing afterwards does nothing, in either mode.
+        b.down(295,1000)
+        assertEquals(FrameButtons.Action.CONTROLS,b.hold(3600))
+        assertEquals(FrameButtons.Action.NONE,b.up(295,3700))
+        // Plus and minus are unaffected.
+        assertEquals(FrameButtons.Action.NEXT,b.down(24,4000))
+    }
 }

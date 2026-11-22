@@ -97,6 +97,8 @@ class MainActivity : Activity() {
     private val hashes = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val hashFile by lazy { File(filesDir,"photo-hashes.txt") }
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
+    private val favorites = Favorites()
+    private val favoritesFile by lazy { File(filesDir,"favorites.tsv") }
     private val pendingPlays = java.util.concurrent.atomic.AtomicInteger()
     private val historyWriter = Executors.newSingleThreadExecutor()
     @Volatile private var deckMs = 0L
@@ -145,6 +147,8 @@ class MainActivity : Activity() {
     private lateinit var image: FramePhotoView
     @Volatile private var photoLoading = false
     private lateinit var pausedBadge: TextView
+    private lateinit var favoriteBadge: TextView
+    private val settleFavoriteBadge = Runnable { updateFavoriteBadge() }
     private lateinit var pauseButton: Button
     @Volatile private var playbackPaused = false
     private val frontButtons = FrameButtons()
@@ -211,6 +215,8 @@ class MainActivity : Activity() {
         cachedIds.addAll(prefs.getStringSet("cachedIds",emptySet()).orEmpty())
         Thread {
             playHistory.putAll(PhotoDeck.load(historyFile))
+            favorites.load(favoritesFile)
+            handler.post { if (::favoriteBadge.isInitialized) updateFavoriteBadge() }
             runCatching {
                 if (hashFile.exists()) hashFile.forEachLine { line ->
                     val at = line.indexOf('\t')
@@ -242,6 +248,12 @@ class MainActivity : Activity() {
             visibility = if (playbackPaused) View.VISIBLE else View.GONE
         }
         root.addView(pausedBadge, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { setMargins(18,18,18,18) })
+        favoriteBadge = TextView(this).apply {
+            textSize = 20f; setTextColor(0xFFFFD54F.toInt()); setShadowLayer(4f,1f,1f,Color.BLACK)
+            setPadding(18,10,18,10); visibility = View.GONE
+        }
+        root.addView(favoriteBadge, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { setMargins(18,18,18,18) })
+        applyStarMode()
         controls = LinearLayout(this).apply {
             visibility = View.GONE
             orientation = LinearLayout.VERTICAL; setPadding(24, 20, 24, 20)
@@ -256,6 +268,7 @@ class MainActivity : Activity() {
         button("Previous") { showPrevious() }
         button("Next") { handler.removeCallbacks(advance); showNext() }
         pauseButton = button(if (playbackPaused) "Resume" else "Pause") { setPlaybackPaused(!playbackPaused) }
+        button("Favorite") { favoriteSlide() }
         button("Refresh") { sync() }
         button("Settings") { settings() }
         button("Close") { handler.post { controlsUntil = 0; controls.visibility = View.GONE; handler.removeCallbacks(hide) } }
@@ -399,11 +412,78 @@ class MainActivity : Activity() {
         handler.removeCallbacks(advance)
         if (!paused) { scheduleAdvance(prefs.getInt("seconds",30) * 1000L); planPreloads() }
     }
+    /** What a short press of the front Star button does, from the Star button setting; pausing stays the default. */
+    private fun applyStarMode() {
+        frontButtons.shortPress = if (prefs.getString("starButton", "pause") == "favorite") FrameButtons.Action.TOGGLE_FAVORITE else FrameButtons.Action.TOGGLE_PAUSE
+    }
+
+    /**
+     * Stars the photo on screen, or removes its star. The slide is read when the press arrives, so a press during a
+     * transition applies to the photo the owner was looking at. A collage or pair asks which picture, because starring
+     * pictures the owner did not mean would be worse than one more tap.
+     */
+    private fun favoriteSlide(): String {
+        val slide = lastSlide ?: return "No photo is on screen yet."
+        if (slide.photos.size == 1) return toggleFavorite(slide.photos[0])
+        handler.post { chooseFavorite(slide) }
+        return "Choose which picture to star on the frame."
+    }
+
+    private fun toggleFavorite(photo: FramePhoto): String {
+        val on = favorites.toggle(photo.id, System.currentTimeMillis())
+        saveFavorites()
+        val message = if (on) "Added to favorites" else "Removed from favorites"
+        handler.post { showFavoriteNotice(message) }
+        return message + "."
+    }
+
+    private fun chooseFavorite(slide: FrameSlide) {
+        if (closed || sleeping) return
+        val photos = inReadingOrder(slide)
+        // The pictures in the order they are read on screen, each named by its date and whether it is starred.
+        fun label(i: Int) = "${i + 1}. ${if (photos[i].dated) photos[i].date().format(FrameCaption.DATE) else "Undated"}${if (favorites.isFavorite(photos[i].id)) "  (favorite)" else ""}"
+        AlertDialog.Builder(this).setTitle("Star which picture?")
+            .setItems(Array(photos.size) { label(it) }) { _, i -> toggleFavorite(photos[i]) }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    /** A star on a favorite while it is on screen, and a short note when the star changes. */
+    private fun updateFavoriteBadge() {
+        if (!::favoriteBadge.isInitialized) return
+        handler.removeCallbacks(settleFavoriteBadge)
+        val starred = lastSlide?.photos?.any { favorites.isFavorite(it.id) } == true
+        favoriteBadge.text = "\u2605"
+        favoriteBadge.alpha = 0.7f
+        favoriteBadge.visibility = if (starred) View.VISIBLE else View.GONE
+    }
+
+    private fun showFavoriteNotice(message: String) {
+        if (!::favoriteBadge.isInitialized) return
+        handler.removeCallbacks(settleFavoriteBadge)
+        favoriteBadge.text = "\u2605 $message"; favoriteBadge.alpha = 1f; favoriteBadge.visibility = View.VISIBLE
+        handler.postDelayed(settleFavoriteBadge, 2500)
+    }
+
+    private fun favoriteSummary(): String {
+        val n = favorites.count
+        return when {
+            n == 0 -> "No favorites yet. Star a photo from the frame's controls or the button below."
+            favorites.fromGoogle > 0 -> "$n favorites (${favorites.fromGoogle} from Google)."
+            else -> "$n favorite${if (n == 1) "" else "s"}."
+        }
+    }
+
+    private fun saveFavorites() {
+        val text = favorites.export()
+        historyWriter.execute { runCatching { Favorites.write(favoritesFile, text) } }
+    }
+
     private fun performFrontAction(action: FrameButtons.Action) {
         when (action) {
             FrameButtons.Action.NEXT -> showNext()
             FrameButtons.Action.PREVIOUS -> showPrevious()
             FrameButtons.Action.TOGGLE_PAUSE -> setPlaybackPaused(!playbackPaused)
+            FrameButtons.Action.TOGGLE_FAVORITE -> favoriteSlide()
             FrameButtons.Action.CONTROLS -> showControls()
             FrameButtons.Action.NONE -> Unit
         }
@@ -634,6 +714,7 @@ class MainActivity : Activity() {
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
+        updateFavoriteBadge()
         if(!fromHistory) {
             collageCadence.displayed(slide.collage)
             // Record what was on the panel so the deck can prefer what has not been seen.
@@ -890,6 +971,7 @@ class MainActivity : Activity() {
         if(prefs.getBoolean("pairs",true)) flags += "pairs"
         if(prefs.getBoolean("preload",true)) flags += "preload"
         if (sharedLink.isNotBlank()) flags += "shared"
+        if (lastSlide?.photos?.any { favorites.isFavorite(it.id) } == true) flags += "slideFavorite"
         if (syncing.get()) flags += "syncing"
         if (albumSwitching || syncing.get() || preloadEntries.any { it.status == PhotoPreloader.Status.QUEUED || it.status == PhotoPreloader.Status.LOADING }) flags += "busy"
         for (theme in CollageThemes.all) if (theme.id in enabledThemes()) flags += "collageTheme_${theme.id}"
@@ -904,6 +986,8 @@ class MainActivity : Activity() {
             "recencyBias" to Recency.of(prefs.getString("recencyBias",null)).id, "skipBlurry" to sharpness().id, "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
+            "starButton" to prefs.getString("starButton","pause").orEmpty(),
+            "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
@@ -1022,12 +1106,14 @@ class MainActivity : Activity() {
                         if (fields["dateStyle"] == DATE_UNDER_GROUP) DATE_UNDER_GROUP else DATE_ON_PICTURE)
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
+                    if (fields["starSettings"] == "1") edit.putString("starButton",if (fields["starButton"] == "favorite") "favorite" else "pause")
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
                     if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
                         .putBoolean("collages",fields.containsKey("collages")).putInt("collageEvery",collageEvery)
                         .remove("bursts").putBoolean("preload",fields.containsKey("preload"))
                     if(changingMix) themeOn.forEach { (id, on) -> edit.putBoolean("collageTheme_$id", on) }
                     edit.commit()
+                    applyStarMode()
                     FramePower.schedule(this)
                     handler.postDelayed({
                         if (!closed) {
@@ -1072,6 +1158,8 @@ class MainActivity : Activity() {
                     attempt(12)
                     "Choosing a collage of up to $count photos. Its photos may need up to half a minute to download."
                 }
+                "favorite" -> favoriteSlide()
+                "importFavorites" -> { val added = favorites.import(fields["favoritesImport"].orEmpty()); saveFavorites(); handler.post { updateFavoriteBadge() }; "Imported $added new favorites." }
                 "pause" -> { handler.post { setPlaybackPaused(true) }; "Slideshow paused." }
                 "resume" -> { handler.post { setPlaybackPaused(false) }; "Slideshow resumed." }
                 "next" -> { handler.post { showNext() }; "Advancing to the next photo." }

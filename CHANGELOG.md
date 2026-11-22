@@ -59,6 +59,11 @@
 - The dates under a group of pictures follow the pictures: read along each row in the direction of the frame's language
   (left to right, or right to left for Arabic and Hebrew) and top to bottom, each distinct date once, instead of being
   sorted by date.
+- Star a photo on the frame and keep it: a Favorite button in the on-frame controls and on the Everyday page, a star shown
+  while a favorite is on screen, and a list saved to the frame that survives restarts, updates and album changes (photos
+  not in the current album stay on the list). On a collage the button asks which picture. A Star button setting lets the
+  front star button favorite the photo instead of pausing (pausing stays the default). The Debug page shows the list to
+  save and a box to restore it. Favorites are not shown more often yet; that comes next.
 - Dates on the screen follow the frame's language ("March 4, 2021" in English, 2021-03-04 style written the local way in
   Japanese, French and so on) instead of a fixed English pattern, both under a group and on each picture of a collage.
 - Remove the Photos per round setting. The frame plans about one awake day at a time: the photos it shows in a day at

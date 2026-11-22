@@ -79,4 +79,24 @@ class FrameWebTest {
         assertTrue("the memories window is still offered",page.contains("name=\"memoryDays\""))
         assertTrue(page.contains("Photos not yet shown come first; memories use"))
     }
+    @Test fun theStarButtonSettingDefaultsToPauseAndShowsTheOwnersChoice() {
+        val none = FrameWeb.render(FrameWeb.State(emptyMap(), emptySet()))
+        assertTrue(none.contains("name=\"starButton\"")); assertTrue(none.contains("name=\"starSettings\""))
+        assertTrue("pause is the default", none.contains("<option value=\"pause\" selected>"))
+        val fav = FrameWeb.render(FrameWeb.State(mapOf("starButton" to "favorite"), emptySet()))
+        assertTrue(fav.contains("<option value=\"favorite\" selected>")); assertFalse(fav.contains("<option value=\"pause\" selected>"))
+    }
+    @Test fun theFavoriteButtonReflectsWhetherThePhotoOnScreenIsStarred() {
+        val off = FrameWeb.render(FrameWeb.State(mapOf("favoriteSummary" to "No favorites yet."), emptySet()))
+        assertTrue(off.contains("Favorite this photo</button>")); assertTrue(off.contains("value=\"favorite\""))
+        assertTrue(off.contains("No favorites yet."))
+        val on = FrameWeb.render(FrameWeb.State(mapOf("favoriteSummary" to "3 favorites."), setOf("slideFavorite")))
+        assertTrue(on.contains("Remove from favorites</button>")); assertFalse(on.contains("Favorite this photo</button>"))
+    }
+    @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
+        val hostile = "<script>x</script>\t1\tframe\t0"
+        val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))
+        assertFalse(page.contains("<script>x</script>")); assertTrue(page.contains("&lt;script&gt;x"))
+        assertTrue(page.contains("name=\"favoritesImport\"")); assertTrue(page.contains("value=\"importFavorites\""))
+    }
 }

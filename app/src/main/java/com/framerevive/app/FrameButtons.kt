@@ -2,7 +2,9 @@ package com.framerevive.app
 
 /** Receives only events from the frame's dedicated as9061d_key device. */
 class FrameButtons {
-    enum class Action { NONE, NEXT, PREVIOUS, TOGGLE_PAUSE, CONTROLS }
+    enum class Action { NONE, NEXT, PREVIOUS, TOGGLE_PAUSE, TOGGLE_FAVORITE, CONTROLS }
+    /** What a short press of the star button does: pause or resume (the default), or star the photo on screen. */
+    @Volatile var shortPress = Action.TOGGLE_PAUSE
     private var key = 0
     private var started = 0L
     private var held = false
@@ -21,7 +23,7 @@ class FrameButtons {
         val result = when {
             canceled || held -> Action.NONE
             code == STAR && now - started >= HOLD_MS -> Action.CONTROLS
-            code == STAR -> Action.TOGGLE_PAUSE
+            code == STAR -> shortPress
             else -> Action.NONE
         }
         cancel()
