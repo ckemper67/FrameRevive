@@ -24,6 +24,11 @@
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 - Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
   between the photos, shared rather than doubled, so pictures never bleed together.
+- Play the whole album as a deck: photos never shown come first, then the ones shown longest ago, so
+  nothing repeats within a cycle and nothing is left unseen. Coverage is reported on the controls page.
+- Collages draw from one capture date by default; the controls page offers a Mixed option for an occasional
+  collage from the newest photos. A date offers up to twelve candidates so the layout can choose shapes that
+  compose instead of forcing whatever four photos it had, and Preview runs the same selection as playback.
 - Update the frame from the controls page without touching it: an accessibility service confirms Android's
   installation prompt for FrameRevive only, so uploads install hands-off over WiFi and survive reboots.
 - Label every picture of a pair or collage with its own capture date, inset inside the photo rather than in the

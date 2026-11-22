@@ -60,6 +60,33 @@ class MainActivity : Activity() {
     private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
     /** Photo ids with a cache file. Maintained as files are written, so planning never stats thousands of paths. */
     private val cachedIds: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+    /** Photos shown and when; the album is played as a deck so coverage does not depend on luck. */
+    private val playHistory = java.util.concurrent.ConcurrentHashMap<String, PlayRecord>()
+    private val historyFile by lazy { File(filesDir,"photo-history.json") }
+    private val pendingPlays = java.util.concurrent.atomic.AtomicInteger()
+    private val historyWriter = Executors.newSingleThreadExecutor()
+    @Volatile private var deckMs = 0L
+    /** Album sorted newest capture first, prepared off the UI thread when the album is read. */
+    @Volatile private var photosByRecency: List<FramePhoto> = emptyList()
+    /** Seasonal candidates for the current day and window, computed on a worker: a calendar pass over the
+     *  whole album costs about a third of a second on this frame and must not run while drawing. */
+    @Volatile private var seasonalPhotos: List<FramePhoto> = emptyList()
+    @Volatile private var seasonalKey = ""
+    @Volatile private var seasonalRefreshFor = ""
+
+    private fun seasonalKeyNow() = "${LocalDate.now()}|${prefs.getInt("memoryDays",14)}"
+
+    private fun ensureSeasonal() {
+        val key = seasonalKeyNow()
+        if (seasonalKey == key || seasonalRefreshFor == key) return
+        seasonalRefreshFor = key
+        val snapshot = photos; val today = LocalDate.now(); val days = prefs.getInt("memoryDays",14)
+        historyWriter.execute {
+            seasonalPhotos = PhotoSelection.seasonal(snapshot, today, days)
+            seasonalKey = key
+            handler.post { if (active && !closed && playlist.size - index < 3) rebuild() }
+        }
+    }
     @Volatile private var mainTick = System.currentTimeMillis()
     @Volatile private var mainStall = ""
     private val qualityScores = java.util.concurrent.ConcurrentHashMap<String, Float>()
@@ -142,6 +169,10 @@ class MainActivity : Activity() {
             prefs.edit().putString("cacheNaming",FrameCache.NAMING).remove("cachedIds").apply()
         }
         cachedIds.addAll(prefs.getStringSet("cachedIds",emptySet()).orEmpty())
+        Thread {
+            val loaded = PhotoDeck.load(historyFile)
+            playHistory.putAll(loaded)
+        }.apply { isDaemon = true; name = "play-history"; start() }
         startWatchdog()
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         image = FramePhotoView(this).apply {
@@ -251,16 +282,32 @@ class MainActivity : Activity() {
             prefs.edit().putLong("lastSuccessfulSync", json.optLong("syncedAt")).apply()
         if (sharedLink.isNotBlank()) client = PrivatePhotosClient(this, anonymous = true)
         else runCatching { client.loadSavedSession() }
+        // Cached catalog path: prepare the recency order here too, off the rebuild, or the deck sorts
+        // 15,000 photos on the UI thread every time the frame starts.
+        photosByRecency = list.sortedByDescending { it.takenMs }
         photos = list; rebuild()
     }
 
     private fun saveCatalog(json: JSONObject) = PrivatePhotosClient.writeAtomic(File(filesDir, "album.json"), json.toString().toByteArray(Charsets.UTF_8))
+    /** Writes the play history off the UI thread; the file holds one short row per photo. */
+    private fun flushHistory() {
+        pendingPlays.set(0)
+        val albumIds = photos.map { it.id }.toSet()
+        val snapshot = PhotoDeck.pruned(playHistory, albumIds)
+        historyWriter.execute { runCatching { PhotoDeck.save(historyFile, snapshot) } }
+    }
+
     private fun rebuild() {
         day = LocalDate.now()
+        val started = System.nanoTime()
         val normal = PhotoSelection.playlist(photos,day,recentCount=prefs.getInt("recentCount",300),
-            memoryDays=prefs.getInt("memoryDays",14),recentPercent=prefs.getInt("recentPercent",50))
+            memoryDays=prefs.getInt("memoryDays",14),recentPercent=prefs.getInt("recentPercent",50),seen=playHistory,
+            byRecency=photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } },
+            seasonalCandidates=seasonalPhotos)
+        deckMs = (System.nanoTime()-started)/1_000_000
+        ensureSeasonal()
         playlist = PhotoSelection.prioritize(normal,photos,priorityIds)
-        recentIds = photos.sortedByDescending { it.takenMs }.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
+        recentIds = photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
         preloader.clear()
         index = 0
     }
@@ -499,7 +546,12 @@ class MainActivity : Activity() {
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
-        if(!fromHistory) { collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown() }
+        if(!fromHistory) {
+            collageCadence.displayed(slide.collage);if(slide.collage) collageCadence.collageShown()
+            // Record what was on the panel so the deck can prefer what has not been seen.
+            PhotoDeck.recorded(playHistory, slide.photos.map { it.id }, System.currentTimeMillis())
+            if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
+        }
         // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,
         // so no text ever lands in the paddings. Undated album entries get no label rather than January 1970.
         val first=slide.photos.first()
@@ -647,6 +699,8 @@ class MainActivity : Activity() {
                 val shared = if (targetShared.isNotBlank()) reader.syncShared(targetShared, progress) else null
                 val actualTitle = shared?.title ?: targetTitle
                 val fresh = (shared?.photos ?: reader.sync(targetId, progress))
+                // Sorted once here, on the sync thread: the deck cannot afford to sort 15,000 photos per rebuild.
+                val byRecency = fresh.sortedByDescending { it.takenMs }
                     .map { p -> p.copy(discoveredMs = if (changingAlbum) 0 else existing[p.id]?.discoveredMs ?: discovered) }
                 val rows = JSONArray()
                 fresh.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs).put("discoveredMs",p.discoveredMs)) }
@@ -669,7 +723,8 @@ class MainActivity : Activity() {
                         val hasAdditions = priorityIds.isNotEmpty()
                         flushQuality()
                         collageDay = emptyList()
-                        albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader; photos = fresh; rebuild(); planPreloads()
+                        albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader
+                        photos = fresh; photosByRecency = byRecency; rebuild(); planPreloads()
                         setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
                         status.text = "$title · ${fresh.size} photos\nUpdated ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())} · checks hourly"
                         if ((!displayed || changingAlbum || hasAdditions) && active && (!playbackPaused || !displayed || changingAlbum)) showNext()
@@ -788,6 +843,8 @@ class MainActivity : Activity() {
             "recentCount" to prefs.getInt("recentCount",300).toString(), "memoryDays" to prefs.getInt("memoryDays",14).toString(),
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "collageSource" to prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
+            "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
+                "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
             "collageEvery" to prefs.getInt("collageEvery",20).toString(),
             "collageSummary" to (if(!prefs.getBoolean("collages",true)) "Disabled" else "Every ${prefs.getInt("collageEvery",20)} individual photos · Next: ${collageCadence.nextCount} photos · ${collageCadence.singles} shown · " +
@@ -819,6 +876,7 @@ class MainActivity : Activity() {
                 "Playback paused: $playbackPaused",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
+                "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",

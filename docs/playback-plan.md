@@ -106,7 +106,7 @@ ordering; layout work similar to B2.
 | # | Item | Version | Why here |
 | --- | --- | --- | --- |
 | 1 | Stability (52) | 52 | Prerequisite for proving anything |
-| 2 | A1 deck + history | 53 | Fixes repeats **and** the 98%-unseen album |
+| 2 | ~~A1 deck + history~~ **done** | 61 | Fixes repeats **and** the 98%-unseen album |
 | 3 | A2 decay | 54 | Makes the deck's recency bias tunable |
 | 4 | B1 bursts | 55 | Stops a single afternoon flooding the queue |
 | 5 | B2 event grid | 56 | Uses bursts where the panel is biggest |

@@ -22,17 +22,21 @@ class PhotoSelectionTest {
         assertEquals(1, PhotoSelection.distance(LocalDate.parse("2020-02-29"), LocalDate.parse("2026-03-01")))
     }
     @Test fun emptyAlbumIsSafe() { assertTrue(PhotoSelection.playlist(emptyList(), LocalDate.now()).isEmpty()) }
-    @Test fun oldUploadGetsPriorityOnceButDoesNotDisplaceRecentCaptures() {
+    @Test fun anOldUploadIsEligibleButPriorityStillPlaysItFirstOnce() {
+        // The deck reaches the whole album, so an old unseen photo may appear on its own; what priority adds
+        // is that it appears first, exactly once.
         val today = LocalDate.parse("2026-10-20")
         val recent = (0..299).map { photo("recent$it", "2026-09-01") }
         val oldUpload = photo("oldUpload", "2008-01-01").copy(discoveredMs = photo("now", "2026-10-20").takenMs)
         val all = recent + oldUpload
         val normal = PhotoSelection.playlist(all,today,Random(42))
-        assertEquals(recent.map { it.id }.toSet(), normal.map { it.id }.toSet())
+        assertEquals(300, normal.size)
+        assertEquals("a cycle must not repeat a photo", 300, normal.map { it.id }.distinct().size)
+        assertTrue("only album photos", all.map { it.id }.containsAll(normal.map { it.id }))
         val firstPass = PhotoSelection.prioritize(normal,all,setOf(oldUpload.id))
         assertEquals(oldUpload.id,firstPass.first().id)
         assertEquals(1,firstPass.count { it.id == oldUpload.id })
-        assertFalse(PhotoSelection.prioritize(normal,all,emptySet()).any { it.id == oldUpload.id })
+        assertEquals(normal, PhotoSelection.prioritize(normal,all,emptySet()))
     }
     @Test fun anOldUploadCanStillAppearAsASeasonalMemory() {
         val recent = (0..299).map { photo("recent$it", "2026-09-01") }
@@ -50,8 +54,10 @@ class PhotoSelectionTest {
         val result = PhotoSelection.playlist(latest + photo("memory", "2010-10-21") + photo("other", "2010-03-01"), LocalDate.parse("2026-10-20"), Random(42))
         assertEquals(600, result.size)
         assertTrue(result.filterIndexed { i, _ -> i % 2 == 1 }.all { it.id == "memory" })
+        // The even slots are the deck, which now reaches the whole album - including "other", an old photo
+        // that is not in season and that the newest-300 rule used to exclude.
         assertEquals(300, result.filterIndexed { i, _ -> i % 2 == 0 }.map { it.id }.toSet().size)
-        assertFalse(result.any { it.id == "other" })
+        assertTrue("a seasonal photo must not appear in the deck", result.filterIndexed { i, _ -> i % 2 == 1 }.all { it.id != "other" })
     }
     @Test fun seasonalPoolExcludesCurrentYear() {
         val photos = (0..300).map { photo("p$it", "2026-10-20") }
