@@ -38,8 +38,18 @@ class PlaybackSimulation {
         return out
     }
 
+    /** Burst frames hash within two bits of their burst's base, as real near-identical shots do; the rest are unrelated. */
+    private fun hashes(photos: List<FramePhoto>, random: Random): Map<String, Long> {
+        val bases = HashMap<String, Long>()
+        return photos.associate { p ->
+            val burst = p.id.takeIf { it.startsWith("b") }?.substringBefore('_')
+            p.id to if (burst == null) random.nextLong() else bases.getOrPut(burst) { random.nextLong() } xor (1L shl random.nextInt(2))
+        }
+    }
+
     private class Report(val cycleLength: Int, val maxPlays: Int, val repeatedSlots: Int, val seasonalSlots: Int,
-                         val burstShare: Double, val coverage: Double, val years: Map<Int, Int>)
+                         val burstShare: Double, val coverage: Double, val years: Map<Int, Int>,
+                         val similar: Int = 0, val held: Int = 0, val nearDuplicates: Int = 0)
 
     private fun run(settings: CycleSettings, cycles: Int, seed: Int): List<Report> {
         val random = Random(seed)
@@ -49,10 +59,12 @@ class PlaybackSimulation {
         val seasonalIds = seasonal.map { it.id }.toSet()
         val burstIds = Bursts.events(photos).filter { it.isBurst }.flatMap { e -> e.photos.map { it.id } }.toSet()
         val history = HashMap<String, PlayRecord>()
+        val hashes = hashes(photos, random)
         var clock = 0L
         return (1..cycles).map {
-            val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
-                { null }, emptySet(), random).playlist
+            val built = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, hashes,
+                { null }, emptySet(), random)
+            val cycle = built.playlist
             val plays = HashMap<String, Int>()
             for (photo in cycle) {
                 plays.merge(photo.id, 1, Int::plus)
@@ -60,7 +72,8 @@ class PlaybackSimulation {
             }
             Report(cycle.size, plays.values.max(), plays.values.sumOf { it - 1 }, cycle.count { it.id in seasonalIds },
                 cycle.count { it.id in burstIds }.toDouble() / cycle.size, PhotoDeck.stats(photos, history).percentShown / 100.0,
-                cycle.groupingBy { it.date().year }.eachCount().toSortedMap())
+                cycle.groupingBy { it.date().year }.eachCount().toSortedMap(), built.similarSkipped, built.burstHeld,
+                cycle.withIndex().count { (i, p) -> hashes[p.id]?.let { h -> cycle.take(i).any { q -> hashes[q.id]?.let { PhotoSimilarity.near(h, it) } == true } } == true })
         }
     }
 
@@ -140,10 +153,11 @@ class PlaybackSimulation {
         val reports = run(CycleSettings(), cycles = 5, seed = 7)
         reports.forEachIndexed { i, r ->
             println("sim cycle ${i + 1}: slots=${r.cycleLength} maxPlays=${r.maxPlays} repeatedSlots=${r.repeatedSlots} " +
-                "seasonalSlots=${r.seasonalSlots} burstShare=${"%.3f".format(r.burstShare)} coverage=${"%.3f".format(r.coverage)} years=${r.years}")
+                "seasonalSlots=${r.seasonalSlots} burstShare=${"%.3f".format(r.burstShare)} similarSkipped=${r.similar} burstHeld=${r.held} nearDuplicates=${r.nearDuplicates} coverage=${"%.3f".format(r.coverage)} years=${r.years}")
         }
         reports.forEach { assertTrue("every cycle plays something", it.cycleLength > 0) }
         reports.forEach { assertEquals("no photo plays twice within a cycle", 0, it.repeatedSlots) }
+        reports.forEach { assertEquals("no two frames of one moment share a cycle", 0, it.nearDuplicates) }
         assertTrue("coverage never goes backwards", reports.zipWithNext().all { (a, b) -> b.coverage >= a.coverage })
     }
 

@@ -12,8 +12,6 @@ object PhotoSimilarity {
     const val GRID_H = 8
     /** Bits of difference below which two photos count as the same moment. Out of 64. */
     const val THRESHOLD = 8
-    /** How far apart near-duplicates are kept in the playlist. */
-    const val WINDOW = 8
 
     fun dhash(luma: IntArray, width: Int, height: Int): Long {
         require(width > 1 && height > 1 && luma.size >= width * height)
@@ -42,30 +40,6 @@ object PhotoSimilarity {
     fun distance(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
 
     fun near(a: Long, b: Long, threshold: Int = THRESHOLD): Boolean = distance(a, b) <= threshold
-
-    /**
-     * Removes photos that repeat one of the previous [window] entries, so a burst does not become eight
-     * almost identical slides. Photos without a hash are kept: an unanalysed photo is not a duplicate.
-     */
-    fun thin(photos: List<FramePhoto>, hashes: Map<String, Long>, window: Int = WINDOW, threshold: Int = THRESHOLD): List<FramePhoto> {
-        if (hashes.isEmpty()) return photos
-        val kept = ArrayList<FramePhoto>(photos.size)
-        val recent = ArrayDeque<Long>()
-        for (photo in photos) {
-            val hash = hashes[photo.id]
-            if (hash != null) {
-                var duplicate = false
-                for (other in recent) if (near(hash, other, threshold)) { duplicate = true; break }
-                if (duplicate) continue
-            }
-            kept += photo
-            if (hash != null) {
-                recent.addLast(hash)
-                if (recent.size > window) recent.removeFirst()
-            }
-        }
-        return kept
-    }
 
     /** True when any pair in [photos] is the same moment; used to keep a collage's members distinct. */
     fun hasDuplicates(photos: List<FramePhoto>, hashes: Map<String, Long>, threshold: Int = THRESHOLD): Boolean {

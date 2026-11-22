@@ -17,8 +17,8 @@ data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, v
  */
 object PlaybackEngine {
     /**
-     * Playlist, then near-duplicate thinning, then the burst pass, then the priority queue. Frames the burst
-     * pass holds back are not recorded as shown, so they return in a later cycle.
+     * Playlist, then one event pass (burst limit and near-duplicates), then the priority queue. Frames the
+     * event pass leaves out are not recorded as shown, so they return in a later cycle.
      */
     fun buildCycle(photos: List<FramePhoto>, today: LocalDate, settings: CycleSettings, seen: Map<String, PlayRecord>,
                    byRecency: List<FramePhoto>, seasonal: List<FramePhoto>?, hashes: Map<String, Long>,
@@ -27,9 +27,8 @@ object PlaybackEngine {
         val normal = PhotoSelection.playlist(photos, today, random, settings.recentCount, settings.memoryDays,
             settings.recentPercent, seen, byRecency, seasonal)
         val deckNanos = System.nanoTime() - started
-        val thinned = PhotoSimilarity.thin(normal, hashes)
-        val bursts = Bursts.thin(thinned, seen, sharpness = quality)
+        val bursts = Bursts.thin(normal, seen, hashes = hashes, sharpness = quality)
         val excluded = normal.map { it.id }.toHashSet().apply { removeAll(bursts.kept.map { it.id }.toSet()) }
-        return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), normal.size - thinned.size, bursts.heldBack, deckNanos, excluded)
+        return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), bursts.similar, bursts.heldBack, deckNanos, excluded)
     }
 }

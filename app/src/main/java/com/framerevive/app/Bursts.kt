@@ -6,7 +6,8 @@ data class Event(val photos: List<FramePhoto>) {
     val isBurst: Boolean get() = photos.size >= Bursts.MIN_EVENT
 }
 
-data class BurstResult(val events: List<Event>, val kept: List<FramePhoto>, val heldBack: Int)
+/** [heldBack] counts frames over an event's limit; [similar] counts frames left out as repeats of one kept. */
+data class BurstResult(val events: List<Event>, val kept: List<FramePhoto>, val heldBack: Int, val similar: Int = 0)
 
 /**
  * Groups the album by capture time and lets only a few frames of a burst into a cycle.
@@ -18,6 +19,10 @@ data class BurstResult(val events: List<Event>, val kept: List<FramePhoto>, val 
  * Which frames survive is decided by coverage first: frames that have never been shown come before frames
  * that have, so a burst is revealed a few frames per cycle instead of being reduced to its sharpest shot and
  * forgotten. Sharpness only breaks ties inside each of those groups.
+ *
+ * With image hashes an event is also refined by what the frames look like: a frame that repeats one already
+ * kept from its event is left out, so ten shots of one moment give one frame, not three near-identical ones.
+ * Across events only an exact repeat (the same picture saved twice) is dropped, which keeps the pass linear.
  */
 object Bursts {
     /** Silence longer than this starts a new event. */
@@ -51,23 +56,41 @@ object Bursts {
      * this pass; held-back frames are simply left out of this cycle and stay eligible for the next one.
      */
     fun thin(cycle: List<FramePhoto>, seen: Map<String, PlayRecord>, keep: Int = KEEP, maxGapMs: Long = MAX_GAP_MS,
+             hashes: Map<String, Long> = emptyMap(), threshold: Int = PhotoSimilarity.THRESHOLD,
              sharpness: (FramePhoto) -> Float?): BurstResult {
-        if (cycle.size < MIN_EVENT) return BurstResult(events(cycle, maxGapMs), cycle, 0)
+        if (cycle.size < MIN_EVENT && hashes.isEmpty()) return BurstResult(events(cycle, maxGapMs), cycle, 0)
         val events = events(cycle, maxGapMs)
         val allowed = HashSet<String>(cycle.size)
-        var held = 0
+        var held = 0; var similar = 0
         for (event in events) {
-            if (!event.isBurst || event.photos.size <= keep) {
+            val limited = event.isBurst && event.photos.size > keep
+            if (!limited && (hashes.isEmpty() || event.photos.size < 2)) {
                 event.photos.forEach { allowed += it.id }
                 continue
             }
-            val ranked = event.photos.sortedWith(
+            val ranked = if (!limited) event.photos else event.photos.sortedWith(
                 compareBy<FramePhoto> { if ((seen[it.id]?.plays ?: 0) > 0) 1 else 0 }
                     .thenByDescending { sharpness(it) ?: -1f })
-            ranked.take(keep).forEach { allowed += it.id }
-            held += event.photos.size - keep
+            val chosen = ArrayList<FramePhoto>(keep)
+            val chosenHashes = ArrayList<Long>(keep)
+            for (photo in ranked) {
+                val hash = hashes[photo.id]
+                if (hash != null && chosenHashes.any { PhotoSimilarity.near(hash, it, threshold) }) { similar++; continue }
+                if (limited && chosen.size >= keep) { held++; continue }
+                chosen += photo; allowed += photo.id
+                if (hash != null) chosenHashes += hash
+            }
         }
-        if (held == 0) return BurstResult(events, cycle, 0)
-        return BurstResult(events, cycle.filter { it.id in allowed }, held)
+        // The same picture saved twice lands in two events; only its first copy plays this cycle.
+        if (hashes.isNotEmpty()) {
+            val exact = HashSet<Long>()
+            for (photo in cycle) {
+                if (photo.id !in allowed) continue
+                val hash = hashes[photo.id] ?: continue
+                if (!exact.add(hash)) { allowed -= photo.id; similar++ }
+            }
+        }
+        if (held == 0 && similar == 0) return BurstResult(events, cycle, 0)
+        return BurstResult(events, cycle.filter { it.id in allowed }, held, similar)
     }
 }

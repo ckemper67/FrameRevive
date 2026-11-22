@@ -154,8 +154,14 @@ collages chosen, skipped and served by the other source. Slide level, same album
 slots 287 -> 0, coverage 17% -> 18%, 339 collage photos still come from outside the queue but are all eligible.
 Collages taking the occasional different photo is accepted (no switch to the old behaviour). Second slice: `bestDay` reads the play history, preferring a date whose photos have not been shown (else the
 one shown longest ago) and listing unseen or oldest-shown photos first. Collage photos already shown in an
-earlier cycle: 245 of 339 -> 0 over 2,400 slides; coverage 18% -> 19%. Not done yet: merging `Bursts` and `PhotoSimilarity` into one event concept, the `recentCount` rename, and showing
-skip and fallback counts on the controls page.
+earlier cycle: 245 of 339 -> 0 over 2,400 slides; coverage 18% -> 19%. Third slice: `Bursts` and `PhotoSimilarity` are one pass. `Bursts.thin` takes the hashes: inside each event a
+frame that repeats one already kept is left out (ten identical shots give one frame, not three), and across
+events only an exact repeat (the same picture saved twice) is dropped, which keeps it linear on the UI thread.
+The windowed `PhotoSimilarity.thin` is gone; `dhash`, `near` and `hasDuplicates` remain. The simulation gives
+burst frames near-identical hashes: near-identical frames left in a cycle 2 -> 0, coverage unchanged (19%).
+What is lost: a near-duplicate pair on different days (not an exact repeat) is no longer caught, which the old
+window did only by chance in a shuffled playlist. Not done yet: the `recentCount` rename and showing skip and
+fallback counts on the controls page.
 
 Done when collage photos obey the same repeat and burst limits as singles and coverage is no worse than the
 Phase 0 baseline. Risk: a strict gate starves same-day collages; keep the RECENT fallback and report how

@@ -63,4 +63,61 @@ class BurstsTest {
         assertEquals(6, result.heldBack)
         assertTrue(result.kept.any { it.id.startsWith("a") } && result.kept.any { it.id.startsWith("b") })
     }
+
+    /** Hashes far enough apart (more than the threshold) that no two count as the same moment. */
+    private fun distinct(i: Int) = 0xFFFL shl (i * 5)
+
+    private fun hashed(photos: List<FramePhoto>, hash: (Int) -> Long) = photos.withIndex().associate { (i, p) -> p.id to hash(i) }
+
+    @Test fun anIdenticalBurstGivesOneFrameNotThreeNearIdenticalOnes() {
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val same = PhotoSimilarity.dhash(IntArray(90 * 80) { (it % 90) * 2 }, 90, 80)
+        val result = Bursts.thin(cycle, emptyMap(), hashes = cycle.associate { it.id to same }) { null }
+        assertEquals(listOf("p1"), result.kept.map { it.id })
+        assertEquals(9, result.similar)
+        assertEquals(0, result.heldBack)
+    }
+
+    @Test fun aBurstOfDistinctShotsStillKeepsItsLimit() {
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val result = Bursts.thin(cycle, emptyMap(), hashes = hashed(cycle, ::distinct)) { null }
+        assertEquals(3, result.kept.size)
+        assertEquals(7, result.heldBack)
+        assertEquals(0, result.similar)
+    }
+
+    @Test fun nearDuplicatesAreLeftOutBeforeTheLimitIsFilled() {
+        // p1..p4 are one scene, p5..p8 another: three frames survive and none is a near-duplicate of another.
+        val cycle = (1..8).map { photo("p$it", 0, 9 * 60 + it) }
+        val hashes = hashed(cycle) { i -> distinct(if (i < 4) 0 else 1) xor (1L shl (40 + i % 2)) }
+        val result = Bursts.thin(cycle, emptyMap(), hashes = hashes) { null }
+        assertEquals(listOf("p1", "p5"), result.kept.map { it.id })
+        assertEquals(6, result.similar)
+    }
+
+    @Test fun aShortSequenceOfTheSameMomentIsReducedToOne() {
+        val cycle = listOf(photo("a", 0, 9 * 60), photo("b", 0, 9 * 60 + 1))
+        val result = Bursts.thin(cycle, emptyMap(), hashes = mapOf("a" to 5L, "b" to 5L)) { null }
+        assertEquals(listOf("a"), result.kept.map { it.id })
+    }
+
+    @Test fun unhashedFramesAreNeverLeftOut() {
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        val result = Bursts.thin(cycle, emptyMap(), hashes = mapOf("p1" to 0L)) { null }
+        assertEquals("only the keep limit applies to unhashed frames", 3, result.kept.size)
+        assertEquals(0, result.similar)
+    }
+
+    @Test fun theSamePictureSavedTwiceInTwoEventsPlaysOnceAtMost() {
+        val cycle = listOf(photo("first", 0, 9 * 60), photo("copy", 3, 15 * 60), photo("other", 6, 12 * 60))
+        val hashes = mapOf("first" to 77L, "copy" to 77L, "other" to distinct(3))
+        val result = Bursts.thin(cycle, emptyMap(), hashes = hashes) { null }
+        assertEquals(listOf("first", "other"), result.kept.map { it.id })
+        assertEquals(1, result.similar)
+    }
+
+    @Test fun withoutHashesTheEventPassIsUnchanged() {
+        val cycle = (1..10).map { photo("p$it", 0, 9 * 60 + it) }
+        assertEquals(Bursts.thin(cycle, emptyMap()) { null }.kept, Bursts.thin(cycle, emptyMap(), hashes = emptyMap()) { null }.kept)
+    }
 }
