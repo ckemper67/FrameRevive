@@ -67,10 +67,17 @@ class MainActivity : Activity() {
     private val cachedIds: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
     /** Photos shown and when; the album is played as a deck so coverage does not depend on luck. */
     private val playHistory = java.util.concurrent.ConcurrentHashMap<String, PlayRecord>()
+    /** Perceptual hash per photo, from the same analysis copy the quality gate uses. */
+    private val hashes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val hashFile by lazy { File(filesDir,"photo-hashes.txt") }
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
     private val pendingPlays = java.util.concurrent.atomic.AtomicInteger()
     private val historyWriter = Executors.newSingleThreadExecutor()
     @Volatile private var deckMs = 0L
+    @Volatile private var similarSkipped = 0
+    /** Album-wide burst picture, refreshed on the worker with the seasonal pool. */
+    @Volatile private var burstEvents = 0
+    @Volatile private var burstHeld = 0
     /** Album sorted newest capture first, prepared off the UI thread when the album is read. */
     @Volatile private var photosByRecency: List<FramePhoto> = emptyList()
     /** Seasonal candidates for the current day and window, computed on a worker: a calendar pass over the
@@ -88,6 +95,9 @@ class MainActivity : Activity() {
         val snapshot = photos; val today = LocalDate.now(); val days = prefs.getInt("memoryDays",14)
         historyWriter.execute {
             seasonalPhotos = PhotoSelection.seasonal(snapshot, today, days)
+            // Bursts are a property of the album, not of a day, but the pass needs a sorted scan and so
+            // belongs here rather than in the middle of drawing a slide.
+            burstEvents = Bursts.events(photosByRecency.asReversed()).count { it.isBurst }
             seasonalKey = key
             handler.post { if (active && !closed && playlist.size - index < 3) rebuild() }
         }
@@ -175,8 +185,13 @@ class MainActivity : Activity() {
         }
         cachedIds.addAll(prefs.getStringSet("cachedIds",emptySet()).orEmpty())
         Thread {
-            val loaded = PhotoDeck.load(historyFile)
-            playHistory.putAll(loaded)
+            playHistory.putAll(PhotoDeck.load(historyFile))
+            runCatching {
+                if (hashFile.exists()) hashFile.forEachLine { line ->
+                    val at = line.indexOf('\t')
+                    if (at > 0) line.substring(at + 1).toULongOrNull(16)?.let { hashes[line.substring(0, at)] = it.toLong() }
+                }
+            }
         }.apply { isDaemon = true; name = "play-history"; start() }
         startWatchdog()
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
@@ -311,7 +326,14 @@ class MainActivity : Activity() {
             seasonalCandidates=seasonalPhotos)
         deckMs = (System.nanoTime()-started)/1_000_000
         ensureSeasonal()
-        playlist = PhotoSelection.prioritize(normal,photos,priorityIds)
+        val before = normal.size
+        val thinned = PhotoSimilarity.thin(normal, hashes)
+        similarSkipped += before - thinned.size
+        // Then the burst pass: one afternoon should not fill the queue with forty shots of the same moment.
+        // Frames it holds back are not marked shown, so they return in a later cycle.
+        val bursts = Bursts.thin(thinned, playHistory) { qualityScores[it.id] }
+        burstHeld = bursts.heldBack
+        playlist = PhotoSelection.prioritize(bursts.kept,photos,priorityIds)
         recentIds = photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
         preloader.clear()
         index = 0
@@ -478,6 +500,9 @@ class MainActivity : Activity() {
             val json = JSONObject().put("scores", rows)
             if (median != null) json.put("median", median.toDouble())
             PrivatePhotosClient.writeAtomic(qualityFile(), json.toString().toByteArray(Charsets.UTF_8))
+            val text = StringBuilder(hashes.size * 48)
+            hashes.forEach { (id, hash) -> text.append(id).append('\t').append(java.lang.Long.toHexString(hash)).append('\n') }
+            PrivatePhotosClient.writeAtomic(hashFile, text.toString().toByteArray(Charsets.UTF_8))
         }
     }
     private fun qualityMedian(): Float? {
@@ -486,7 +511,8 @@ class MainActivity : Activity() {
     }
     /** Scores a cached photo once, from an analysis copy no larger than [PhotoQuality.ANALYSIS_EDGE]. */
     private fun ensureScored(p: FramePhoto) {
-        if (qualityScores.containsKey(p.id)) return
+        // A photo scored by an earlier build still needs its hash, so both have to be present to skip.
+        if (qualityScores.containsKey(p.id) && hashes.containsKey(p.id)) return
         val file = cached(p); if (!file.exists()) return
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
@@ -507,6 +533,8 @@ class MainActivity : Activity() {
                 luma[i] = ((77 * android.graphics.Color.red(c) + 150 * android.graphics.Color.green(c) + 29 * android.graphics.Color.blue(c)) shr 8)
             }
             qualityScores[p.id] = PhotoQuality.stored(PhotoQuality.measure(luma, copy.width, copy.height))
+            // Same pixels, one extra pass: a hash that lets near-identical frames be recognised later.
+            hashes[p.id] = PhotoSimilarity.dhash(luma, copy.width, copy.height)
             qualityMedianKnown = false; qualityDirty = true
             if (++qualityPending >= 25) flushQuality()
         } finally {
@@ -610,7 +638,7 @@ class MainActivity : Activity() {
             // Shape and quality selection run inside the theme; the letterboxed layout is the last resort.
             fun collageFor(source:CollageTheme):List<FramePhoto> {
                 val pool=poolFor(source)
-                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,avoid)
+                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,avoid,hashes=hashes)
                 return if(fitting.size in 2..4) fitting
                     else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,quality)
             }
@@ -906,6 +934,8 @@ class MainActivity : Activity() {
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
+                "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped skipped in this cycle (threshold ${PhotoSimilarity.THRESHOLD}/64 bits, window ${PhotoSimilarity.WINDOW})",
+                "Bursts: $burstEvents events of ${Bursts.MIN_EVENT}+ frames within ${Bursts.MAX_GAP_MS/60000} minutes; $burstHeld frames held back this cycle (${Bursts.KEEP} per event)",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos; source ${prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY)}",
@@ -1022,7 +1052,7 @@ class MainActivity : Activity() {
                                 for(theme in listOf(source,CollageThemeSelection.other(source))) {
                                     val all=poolFor(theme)
                                     val pool=all.filter(ready)
-                                    val fitting=CollageSelection.choose(count,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,emptySet())
+                                    val fitting=CollageSelection.choose(count,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,emptySet(),hashes=hashes)
                                     notes += "$theme pool=${all.size} cached=${pool.size} fitted=${fitting.size}"
                                     if(fitting.size in 2..4) {
                                         handler.removeCallbacks(advance)

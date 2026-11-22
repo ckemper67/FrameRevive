@@ -108,7 +108,7 @@ ordering; layout work similar to B2.
 | 1 | Stability (52) | 52 | Prerequisite for proving anything |
 | 2 | ~~A1 deck + history~~ **done** | 61 | Fixes repeats **and** the 98%-unseen album |
 | 3 | A2 decay | 54 | Makes the deck's recency bias tunable |
-| 4 | B1 bursts | 55 | Stops a single afternoon flooding the queue |
+| 4 | ~~B1 bursts~~ **done** | 67 | Stops a single afternoon flooding the queue |
 | 5 | B2 event grid | 56 | Uses bursts where the panel is biggest |
 | 6 | A3 time-of-day | 57 | Cheapest visible "calm" win |
 | 7 | B3 colour harmony | 58 | Needs the v2 analysis pass |

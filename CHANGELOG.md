@@ -24,6 +24,10 @@
 - Decode each collage cell at the size it needs, so cropped cells are not upscaled.
 - Give every multi-photo slide a white passe-partout: a uniform 28 px (about 7 mm) mount around the slide and
   between the photos, shared rather than doubled, so pictures never bleed together.
+- Group photos into events by capture time and admit only three frames of a burst into a cycle, so one
+  afternoon cannot fill the queue. Held-back frames return in later cycles.
+- Skip near-identical frames: a 64-bit difference hash labels bursts of the same moment, a cycle keeps
+  one frame of a burst out of every eight slides, and a collage refuses two shots of the same moment.
 - Retry failed downloads and album syncs with exponential backoff and jitter, from 2 seconds to a
   fifteen-minute cap, instead of retrying per slide or waiting for the hourly timer.
 - Choose where capture dates go: inside each picture (default) or as one line under a group, the way
