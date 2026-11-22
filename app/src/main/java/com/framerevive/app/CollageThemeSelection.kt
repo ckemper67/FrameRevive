@@ -33,9 +33,11 @@ object CollageThemeSelection {
      * choose shapes that compose instead of being handed whatever four photos the date happened to have.
      * [avoidDays] keeps the same date out of two collages in a row and is dropped when no other date qualifies.
      */
-    fun bestDay(album: List<FramePhoto>, count: Int, ready: (FramePhoto) -> Boolean, avoid: Set<String> = emptySet(),
+    fun bestDay(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
                 avoidDays: Set<LocalDate> = emptySet(), limit: Int = MAX_CANDIDATES): List<FramePhoto> {
         require(count in 2..4 && limit in count..MAX_CANDIDATES)
+        // A set membership test: asking the filesystem for every photo is what stalled the UI thread.
+        fun ready(p: FramePhoto) = p.id in cached
         val candidates = album.filter { it.id !in avoid }
         fun pick(excluded: Set<LocalDate>): List<FramePhoto>? {
             val day = candidates.groupBy { it.date() }.filter { (date, photos) -> date !in excluded && photos.size >= count }

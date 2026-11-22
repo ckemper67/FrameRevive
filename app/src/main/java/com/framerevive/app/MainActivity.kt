@@ -58,6 +58,8 @@ class MainActivity : Activity() {
     private var recentIds: Set<String> = emptySet()
     private val placeholder by lazy { android.graphics.Bitmap.createBitmap(8,8,android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF20242B.toInt()) } }
     private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
+    /** Photo ids with a cache file. Maintained as files are written, so planning never stats thousands of paths. */
+    private val cachedIds: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
     @Volatile private var mainTick = System.currentTimeMillis()
     @Volatile private var mainStall = ""
     private val qualityScores = java.util.concurrent.ConcurrentHashMap<String, Float>()
@@ -137,8 +139,9 @@ class MainActivity : Activity() {
         // The cache naming scheme changed; drop files named under the old one once.
         if(prefs.getString("cacheNaming","") != FrameCache.NAMING) {
             File(filesDir,"photo-cache").deleteRecursively()
-            prefs.edit().putString("cacheNaming",FrameCache.NAMING).apply()
+            prefs.edit().putString("cacheNaming",FrameCache.NAMING).remove("cachedIds").apply()
         }
+        cachedIds.addAll(prefs.getStringSet("cachedIds",emptySet()).orEmpty())
         startWatchdog()
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         image = FramePhotoView(this).apply {
@@ -382,6 +385,8 @@ class MainActivity : Activity() {
         check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
         if(!current()) return
         synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
+        cachedIds.add(p.id)
+        prefs.edit().putStringSet("cachedIds",cachedIds.toSet()).apply()
         runCatching { ensureScored(p) }
     }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
@@ -446,7 +451,7 @@ class MainActivity : Activity() {
     }
     /** Cached, and not excluded by the quality gate, for collage use. */
     private fun usableForCollage(p: FramePhoto): Boolean =
-        cached(p).exists() && PhotoQuality.acceptable(qualityScores[p.id], qualityMedian())
+        p.id in cachedIds && PhotoQuality.acceptable(qualityScores[p.id], qualityMedian())
     /** Dimensions of a photo that is already cached; an uncached photo has no known orientation yet. */
     private fun cachedSize(p:FramePhoto):CollageLayout.Size? = runCatching {
         if (!cached(p).exists()) null else photoSize(p)
@@ -459,7 +464,7 @@ class MainActivity : Activity() {
         // Downloading on the UI thread is what freezes the whole frame when a fetch is slow, and a frozen UI
         // thread also stops installs, previews and pause from ever running. Render a placeholder instead and
         // let the preloader fetch it; the slide is repainted when the file arrives.
-        if(android.os.Looper.myLooper() == android.os.Looper.getMainLooper() && !cached(p).exists()) {
+        if(android.os.Looper.myLooper() == android.os.Looper.getMainLooper() && p.id !in cachedIds) {
             placeholderPhotos[p.id]=p; preloader.plan(listOf(p))
             return placeholder
         }
@@ -487,7 +492,7 @@ class MainActivity : Activity() {
         val planned=if(collageSoon) {
             val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
             if(source==CollageTheme.DAY && collageDay.size < collageCadence.nextCount)
-                collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,{ true },emptySet(),setOfNotNull(lastCollageDay))
+                collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,cachedIds,emptySet(),setOfNotNull(lastCollageDay))
             collageDay+playlist.drop(index)
         } else playlist.drop(index)
         preloader.plan(planned.distinctBy { it.id }.take(count))
@@ -527,7 +532,7 @@ class MainActivity : Activity() {
             fun poolFor(source:CollageTheme):List<FramePhoto> = when(source) {
                 CollageTheme.DAY -> {
                     if(collageDay.size < collageCadence.nextCount)
-                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,quality,avoid,setOfNotNull(lastCollageDay))
+                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,cachedIds,avoid,setOfNotNull(lastCollageDay))
                     collageDay
                 }
                 CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
@@ -918,11 +923,11 @@ class MainActivity : Activity() {
                             try {
                                 if(!active || closed || sleeping) return@post
                                 val d=resources.displayMetrics
-                                val ready:(FramePhoto)->Boolean = { cached(it).exists() }
+                                val ready:(FramePhoto)->Boolean = { it.id in cachedIds }
                                 val quality:(FramePhoto)->Boolean = { usableForCollage(it) }
                                 val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
                                 fun poolFor(theme:CollageTheme):List<FramePhoto> = when(theme) {
-                                    CollageTheme.DAY -> CollageThemeSelection.bestDay(photos,count,quality,emptySet(),setOfNotNull(lastCollageDay))
+                                    CollageTheme.DAY -> CollageThemeSelection.bestDay(photos,count,cachedIds,emptySet(),setOfNotNull(lastCollageDay))
                                     CollageTheme.RECENT -> photos.filter { it.id in recentIds }
                                 }
                                 val notes=mutableListOf<String>()
@@ -934,22 +939,24 @@ class MainActivity : Activity() {
                                     if(fitting.size in 2..4) {
                                         handler.removeCallbacks(advance)
                                         lastCollageTheme=theme
-                                        if(theme==CollageTheme.DAY) lastCollageDay=fitting.first().date()
+                                        if(theme==CollageTheme.DAY)                                        lastCollageDay=fitting.first().date()
                                         showSlide(FrameSlide(fitting),fromHistory=true)
                                         previewCollageCount=2+(previewCollageCount-1)%3
+                                        prefs.edit().putString("previewNote", notes.joinToString("; ") + " -> ${theme.name.lowercase()} ${fitting.size}").apply()
                                         return@post
                                     }
                                 }
                                 if(tries > 0) {
                                     preloader.plan(poolFor(source).take(6))
-                                    handler.postDelayed({ attempt(tries-1) },2500)
+                                    handler.postDelayed({ attempt(tries-1) },3000)
                                 }
                                 prefs.edit().putString("previewNote", notes.joinToString("; ") + " tries=$tries").apply()
                             } catch (e: Exception) { prefs.edit().putString("previewNote", "error: ${e.message}").apply() }
                         }
                     }
-                    attempt(6)
-                    "Choosing a $count-photo collage. Same-day photos may need a few seconds to download."
+                    preloader.plan(CollageThemeSelection.bestDay(photos,count,cachedIds,emptySet(),setOfNotNull(lastCollageDay)).take(6))
+                    attempt(12)
+                    "Choosing a $count-photo collage. Same-day photos may need up to half a minute to download."
                 }
                 "pause" -> { handler.post { setPlaybackPaused(true) }; "Slideshow paused." }
                 "resume" -> { handler.post { setPlaybackPaused(false) }; "Slideshow resumed." }
