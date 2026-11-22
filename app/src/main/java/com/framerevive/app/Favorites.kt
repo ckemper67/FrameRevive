@@ -10,6 +10,15 @@ data class Favorite(val starredMs: Long, val origin: String = FRAME, val vetoed:
     }
 }
 
+/** How much of the day favorites get: a share of the slots, the same whether there are 20 favorites or 2,000. */
+enum class FavoriteShare(val id: String, val percent: Int) {
+    OFF("off", 0), SOMETIMES("some", 5), OFTEN("often", 10);
+    companion object {
+        val DEFAULT = SOMETIMES
+        fun of(id: String?): FavoriteShare = entries.firstOrNull { it.id == id } ?: DEFAULT
+    }
+}
+
 /**
  * The photos the owner has starred, by photo id. Ids that are not in the album right now stay on record: an album
  * switch or a short sync must not cost the owner their list, so nothing here is pruned except by un-starring.
@@ -91,5 +100,25 @@ class Favorites {
             temp.writeBytes(bytes)
             if (!temp.renameTo(file)) { file.writeBytes(bytes); temp.delete() }
         }
+    }
+}
+
+/** Says in plain words what a favorites share means for this many favorites at this pace. */
+object FavoriteReport {
+    fun sentence(count: Int, percent: Int, slotsPerDay: Double): String {
+        if (percent <= 0) return "Favorites are not shown more often."
+        if (count <= 0) return ""
+        // A list shorter than the day's favorite slots shows each once a day at most.
+        val perDay = (slotsPerDay * percent / 100.0).coerceAtMost(count.toDouble()).coerceAtLeast(0.0)
+        if (perDay <= 0.0) return ""
+        val shown = Math.round(perDay).toInt().coerceAtLeast(1)
+        return "About $shown a day; each one comes back ${interval(count / perDay)}."
+    }
+
+    private fun interval(days: Double): String = when {
+        days < 1.5 -> "about every day"
+        days < 14 -> "about every ${Math.round(days)} days"
+        days < 60 -> "about every ${Math.round(days / 7)} weeks"
+        else -> "about every ${Math.round(days / 30)} months"
     }
 }

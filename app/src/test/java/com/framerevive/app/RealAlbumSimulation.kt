@@ -150,6 +150,69 @@ class RealAlbumSimulation {
                 theme.candidates(ctx, queue, 4, emptySet(), avoidDays.firstOrNull()) })
     }
 
+    /**
+     * Stand-in favorites on the real album, since it has none: [count] photos chosen [how]. Plays [plans] plans at the
+     * frame's pace and reports what the share does, so the setting can be judged before the owner has any stars.
+     */
+    private fun favoritesReport(photos: List<FramePhoto>, count: Int, how: String, percent: Int, plans: Int = 12, seed: Int = 11): String {
+        val today = LocalDate.now()
+        val settings = AlbumFixture.cycleSettings().copy(favoritePercent = percent)
+        val pick = Random(seed)
+        val dated = photos.filter { it.dated }
+        val favorites: Set<String> = when (how) {
+            "random" -> dated.shuffled(pick).take(count)
+            "recent three years" -> dated.filter { dayOf(it) >= today.minusYears(3).toEpochDay() }.shuffled(pick).take(count)
+            else -> {   // a few big days
+                val days = dated.groupBy(::dayOf).entries.sortedByDescending { it.value.size }.take(5)
+                days.flatMap { it.value }.shuffled(pick).take(count)
+            }
+        }.map { it.id }.toSet()
+        val byRecency = photos.sortedByDescending { it.takenMs }
+        val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
+        val seasonalIds = seasonal.map { it.id }.toSet()
+        val recentFrom = today.minusMonths(6).toEpochDay()
+        val history = HashMap<String, PlayRecord>(); val random = Random(seed)
+        val lastShown = HashMap<String, Double>(); val returns = ArrayList<Double>()
+        var slots = 0; var fav = 0; var backToBack = 0; var memory = 0; var recent = 0; var clock = 0L
+        var favTwins = 0; val shown = ArrayList<FramePhoto>()
+        for (plan in 1..plans) {
+            val built = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(), { null }, emptySet(), random, favorites = favorites)
+            val round = built.playlist
+            assertEquals("a plan never repeats a photo", round.size, round.map { it.id }.distinct().size)
+            var previousFavorite = false
+            for (p in round) {
+                val isFavorite = p.id in favorites
+                if (isFavorite) {
+                    fav++; if (previousFavorite) backToBack++
+                    val day = slots / slotsPerDay
+                    lastShown[p.id]?.let { returns += day - it }; lastShown[p.id] = day
+                }
+                previousFavorite = isFavorite
+                if (p.id in seasonalIds) memory++
+                if (p.dated && dayOf(p) >= recentFrom) recent++
+                PhotoDeck.recorded(history, listOf(p.id), clock); clock += 30_000; slots++; shown += p
+            }
+        }
+        val perDay = slotsPerDay.toInt().coerceAtLeast(1)
+        for (chunk in shown.chunked(perDay)) {
+            val times = chunk.map { it.takenMs }
+            for (p in chunk) if (p.id in favorites && times.count { kotlin.math.abs(it - p.takenMs) < Bursts.MIN_SEPARATION_MS } > 1) favTwins++
+        }
+        val days = slots / slotsPerDay
+        return ("favorites %s x %d at %d%%: %.1f a day (share %.1f%%), median return %s days, back to back %d, favorites with a twin on the same day %.1f%%, " +
+            "slots from the last 6 months %.0f%%, memories %.0f%%").format(how, count, percent, fav / days, 100.0 * fav / slots,
+            if (returns.isEmpty()) "n/a" else "%.1f".format(returns.sorted()[returns.size / 2]), backToBack,
+            100.0 * favTwins / fav.coerceAtLeast(1), 100.0 * recent / slots, 100.0 * memory / slots)
+    }
+
+    @Test fun favoritesReport() {
+        val photos = AlbumFixture.load()
+        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
+        println(favoritesReport(photos!!, 0, "random", 0))
+        for (percent in listOf(5, 10)) for (how in listOf("random", "recent three years", "a few big days")) for (n in listOf(50, 200, 500))
+            println(favoritesReport(photos, n, how, percent))
+    }
+
     @Test fun realAlbumReport() {
         val photos = AlbumFixture.load()
         assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)

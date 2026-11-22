@@ -363,17 +363,18 @@ class MainActivity : Activity() {
         LocalTime.parse(prefs.getString("sleepStart", "22:00")), LocalTime.parse(prefs.getString("sleepEnd", "07:00")))
     /** Photos one plan lines up: an awake day's worth at the current pace, with a margin. */
     private fun plannedSlots() = PlaybackEngine.plannedSlots(prefs.getInt("seconds",30), awakeHours())
+    private fun favoriteShare() = FavoriteShare.of(prefs.getString("favoriteShare", null))
     private fun cycleSettings(): CycleSettings {
         val recentPercent = prefs.getInt("recentPercent",50)
         return CycleSettings(PlaybackEngine.roundSizeFor(plannedSlots(), recentPercent), prefs.getInt("memoryDays",14), recentPercent,
-            Recency.of(prefs.getString("recencyBias",null)))
+            Recency.of(prefs.getString("recencyBias",null)), favoriteShare().percent)
     }
 
     private fun rebuild() {
         day = LocalDate.now()
         val cycle = PlaybackEngine.buildCycle(photos, day, cycleSettings(),
             playHistory, photosByRecency.ifEmpty { photos.sortedByDescending { it.takenMs } }, seasonalPhotos,
-            hashes, { qualityScores[it.id] }, priorityIds, keep = sharpnessGate())
+            hashes, { qualityScores[it.id] }, priorityIds, keep = sharpnessGate(), favorites = favorites.ids)
         deckMs = cycle.deckNanos/1_000_000
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
@@ -466,11 +467,9 @@ class MainActivity : Activity() {
 
     private fun favoriteSummary(): String {
         val n = favorites.count
-        return when {
-            n == 0 -> "No favorites yet. Star a photo from the frame's controls or the button below."
-            favorites.fromGoogle > 0 -> "$n favorites (${favorites.fromGoogle} from Google)."
-            else -> "$n favorite${if (n == 1) "" else "s"}."
-        }
+        if (n == 0) return "No favorites yet. Star a photo from the frame's controls or the button below."
+        val head = if (favorites.fromGoogle > 0) "$n favorites (${favorites.fromGoogle} from Google)." else "$n favorite${if (n == 1) "" else "s"}."
+        return "$head ${FavoriteReport.sentence(n, favoriteShare().percent, PlaybackEngine.slotsPerDay(prefs.getInt("seconds",30), awakeHours()))}"
     }
 
     private fun saveFavorites() {
@@ -665,7 +664,9 @@ class MainActivity : Activity() {
     private fun sharpnessGate(): (FramePhoto) -> Boolean {
         val fraction = sharpness().fraction
         val median = qualityMedian()
-        return { p -> PhotoQuality.acceptable(qualityScores[p.id], median, fraction) }
+        val starred = favorites.ids
+        // A photo the owner starred is shown whatever its measured sharpness.
+        return { p -> p.id in starred || PhotoQuality.acceptable(qualityScores[p.id], median, fraction) }
     }
     private fun softCount(): Int {
         val fraction = sharpness().fraction
@@ -987,7 +988,7 @@ class MainActivity : Activity() {
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
-            "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "favoriteShare" to favoriteShare().id, "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
@@ -1106,6 +1107,7 @@ class MainActivity : Activity() {
                         if (fields["dateStyle"] == DATE_UNDER_GROUP) DATE_UNDER_GROUP else DATE_ON_PICTURE)
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
+                    if(changingMix && fields.containsKey("favoriteShare")) edit.putString("favoriteShare", FavoriteShare.of(fields["favoriteShare"]).id)
                     if (fields["starSettings"] == "1") edit.putString("starButton",if (fields["starButton"] == "favorite") "favorite" else "pause")
                     if (fields["pairSettings"] == "1") edit.putBoolean("pairs",fields.containsKey("pairs"))
                     if(changingMix) edit.putString("recencyBias",Recency.of(fields["recencyBias"]).id).putString("skipBlurry",Sharpness.of(fields["skipBlurry"]).id).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)

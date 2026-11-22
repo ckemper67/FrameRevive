@@ -4,7 +4,9 @@ import java.time.LocalDate
 import kotlin.random.Random
 
 /** The settings that shape one cycle of the playlist. [roundSize] is internal, not a setting a person chooses. */
-data class CycleSettings(val roundSize: Int = PlaybackEngine.ROUND_SIZE, val memoryDays: Int = 14, val recentPercent: Int = 50, val recency: Recency = Recency.DEFAULT)
+data class CycleSettings(val roundSize: Int = PlaybackEngine.ROUND_SIZE, val memoryDays: Int = 14, val recentPercent: Int = 50, val recency: Recency = Recency.DEFAULT,
+                         /** Percent of the plan given to favorites, whatever their number; see [Favorites]. */
+                         val favoritePercent: Int = 0)
 
 /** One built cycle, with what each stage held back so the controls page and the simulation can report it. */
 data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, val burstHeld: Int, val deckNanos: Long,
@@ -25,6 +27,38 @@ object PlaybackEngine {
     const val PLAN_MARGIN = 1.6
     const val MIN_PLAN = 300
     const val MAX_PLAN = 2000
+
+    /** The most the owner can give favorites: a fifth of the plan keeps the rest of the mix recognisable. */
+    const val MAX_FAVORITE_PERCENT = 20
+
+    /**
+     * The favorites for one plan: a deck, so none plays twice within the plan and the ones shown longest ago come first,
+     * as many as [share] percent of the plan. The count does not depend on how many favorites there are, except that a
+     * list shorter than that share shows each once per plan rather than repeating a photo within hours.
+     */
+    fun favoriteDeck(pool: List<FramePhoto>, seen: Map<String, PlayRecord>, settings: CycleSettings, share: Int, random: Random): List<FramePhoto> {
+        val total = settings.roundSize + PhotoSelection.memorySlots(settings.roundSize, settings.recentPercent)
+        val wanted = favoriteSlots(total, share)
+        // The deck's order over the whole list, then each favorite taken unless it is the same moment as one already taken,
+        // so a party of starred photos gives its slots to different moments instead of losing them to thinning later.
+        val order = PhotoDeck.deck(pool.sortedByDescending { it.takenMs }, seen, pool.size, random)
+        val chosen = ArrayList<FramePhoto>(wanted)
+        for (p in order) {
+            if (chosen.size >= wanted) break
+            if (p.dated && chosen.any { it.dated && kotlin.math.abs(it.takenMs - p.takenMs) < Bursts.MIN_SEPARATION_MS }) continue
+            chosen += p
+        }
+        return chosen
+    }
+
+    /**
+     * Thinning leaves out about a sixth of the other photos (measured on a real album) and never a favorite, so the
+     * share is taken of what will actually be shown, not of the plan, or 5 percent would show as about 6.
+     */
+    const val THINNING_SURVIVAL = 0.85
+
+    /** Slots a plan of [planned] photos gives to favorites at [percent]. */
+    fun favoriteSlots(planned: Int, percent: Int): Int = Math.round(planned * THINNING_SURVIVAL * percent.coerceIn(0, MAX_FAVORITE_PERCENT) / 100.0).toInt()
 
     /** Photos the frame shows in an awake day at its pace. */
     fun slotsPerDay(secondsPerPhoto: Int, awakeHours: Double): Double =
@@ -50,13 +84,26 @@ object PlaybackEngine {
                    byRecency: List<FramePhoto>, seasonal: List<FramePhoto>?, hashes: Map<String, Long>,
                    quality: (FramePhoto) -> Float?, priorityIds: Set<String>, random: Random = Random.Default,
                    /** Called for every photo in the album on the UI thread: resolve settings first, never read preferences or files in here. */
-                   keep: (FramePhoto) -> Boolean = { true }): CycleBuild {
+                   keep: (FramePhoto) -> Boolean = { true },
+                   /** Photo ids the owner starred. They are drawn as their own share of the plan and are exempt from [keep]. */
+                   favorites: Set<String> = emptySet()): CycleBuild {
         val started = System.nanoTime()
+        val share = settings.favoritePercent.coerceIn(0, MAX_FAVORITE_PERCENT)
+        val favoritePool = if (share == 0 || favorites.isEmpty()) emptyList() else photos.filter { it.id in favorites }.distinctBy { it.id }
+        // Favorites have their own slots, so the other pools neither draw them nor spend their own slots on them.
+        val taken = favoritePool.map { it.id }.toHashSet()
+        val favoriteCards = if (taken.isEmpty()) emptyList() else favoriteDeck(favoritePool, seen, settings, share, random)
+        // Slots a short list cannot fill go back to the other pools, so the plan keeps its length.
+        val used = if (favoriteCards.isEmpty()) 0.0 else (favoriteCards.size * 100.0 / (settings.roundSize + PhotoSelection.memorySlots(settings.roundSize, settings.recentPercent))).coerceAtMost(share.toDouble())
+        val rest = if (taken.isEmpty()) settings else settings.copy(roundSize = Math.round(settings.roundSize * (1 - used / 100)).toInt().coerceAtLeast(1))
+        val recentPool = byRecency.filter(keep).let { if (taken.isEmpty()) it else it.filter { p -> p.id !in taken } }
+        val memoryPool = seasonal?.filter(keep).let { if (taken.isEmpty() || it == null) it else it.filter { p -> p.id !in taken } }
         // Photos known to be too soft are not candidates, so they cannot fill slots that would then be skipped.
-        val normal = PhotoSelection.playlist(photos, today, random, settings.roundSize, settings.memoryDays,
-            settings.recentPercent, seen, byRecency.filter(keep), seasonal?.filter(keep), settings.recency)
+        val plain = PhotoSelection.playlist(photos, today, random, rest.roundSize, rest.memoryDays,
+            rest.recentPercent, seen, recentPool, memoryPool, rest.recency)
+        val normal = if (favoritePool.isEmpty()) plain else PhotoSelection.interleave(plain, favoriteCards)
         val deckNanos = System.nanoTime() - started
-        val bursts = Bursts.thin(normal, seen, hashes = hashes, sharpness = quality)
+        val bursts = Bursts.thin(normal, seen, hashes = hashes, sharpness = quality, pinned = taken)
         val excluded = normal.map { it.id }.toHashSet().apply { removeAll(bursts.kept.map { it.id }.toSet()) }
         return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), bursts.similar, bursts.heldBack, deckNanos, excluded)
     }

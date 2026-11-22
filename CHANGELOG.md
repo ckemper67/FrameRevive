@@ -63,7 +63,11 @@
   while a favorite is on screen, and a list saved to the frame that survives restarts, updates and album changes (photos
   not in the current album stay on the list). On a collage the button asks which picture. A Star button setting lets the
   front star button favorite the photo instead of pausing (pausing stays the default). The Debug page shows the list to
-  save and a box to restore it. Favorites are not shown more often yet; that comes next.
+  save and a box to restore it.
+- Show favorites more often: a Favorites setting (Off, Now and then about 1 photo in 20, Often about 1 in 10). The share is
+  the same however many favorites there are, so the controls page says how often each one comes back. Favorites come in
+  turn, least recently shown first, spread through the day and never back to back; a starred photo is shown even if it is
+  a little soft, and several starred frames of one moment give one slot.
 - Dates on the screen follow the frame's language ("March 4, 2021" in English, 2021-03-04 style written the local way in
   Japanese, French and so on) instead of a fixed English pattern, both under a group and on each picture of a collage.
 - Remove the Photos per round setting. The frame plans about one awake day at a time: the photos it shows in a day at

@@ -82,7 +82,7 @@ object PhotoSelection {
     }
 
     /** Spreads [memories] evenly through [latest], each in its own order and each used once. */
-    private fun interleave(latest: List<FramePhoto>, memories: List<FramePhoto>): List<FramePhoto> {
+    fun interleave(latest: List<FramePhoto>, memories: List<FramePhoto>): List<FramePhoto> {
         val total = latest.size + memories.size
         val out = ArrayList<FramePhoto>(total)
         var balance = 0; var recent = 0; var memory = 0

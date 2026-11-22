@@ -150,7 +150,36 @@ Each on its own branch, stacked, with the simulation numbers recorded in this do
 
 ## Progress
 
-- F1 built on branch `favorites-f1`: `Favorites` store and file (`favorites.tsv`), Favorite button in the overlay and on the Everyday page, a star badge while a favorite is on screen, the Star button setting, backup and restore on the Debug page, tests. Favorites do not yet change what is shown (F2).
+- F1 built on branch `favorites-f1`: `Favorites` store and file (`favorites.tsv`), Favorite button in the overlay and on the Everyday page, a star badge while a favorite is on screen, the Star button setting, backup and restore on the Debug page, tests.
+- F2 built on the same branch: the Favorites setting (Off, Now and then 5%, Often 10%), a favorites deck as a fixed share of the plan, burst and gate exemptions, the plain-words summary on the controls page, and the simulation below.
+
+### F2 measurements (real album, 240 s a photo, 16 awake hours, 12 plans, 5% and 10%)
+
+`RealAlbumSimulation.favoritesReport` (run with `FRAMEREVIVE_SECONDS=240 FRAMEREVIVE_AWAKE_HOURS=16`) stands in favorites of 50, 200 and 500 photos, drawn at random, from the last three years, and from five big days:
+
+| Favorites | Setting | Share of what is shown | A day | Same-moment twins | Memories share | Last 6 months share |
+| --- | --- | --- | --- | --- | --- | --- |
+| none | off | 0% | 0 | n/a | 41% | 10% |
+| 50 / 200 / 500, random | 5% | 5.0 / 5.0 / 5.0% | 11.9 / 11.9 / 12.0 | 1.0 / 1.6 / 1.1% | 40 / 40 / 39% | 9 / 9 / 10% |
+| 50 / 200 / 500, random | 10% | 10.2 / 10.1 / 10.0% | 24.4 / 24.1 / 24.1 | 1.3 / 1.5 / 0.8% | 38 / 39 / 39% | 10 / 9 / 10% |
+| 50 / 200 / 500, last three years | 5% | 5.0 / 5.0 / 4.8% | 12.0 / 11.9 / 11.6 | 0.5 / 1.1 / 1.6% | 40 / 39 / 40% | 10% |
+| 50 / 200 / 500, five big days | 5% | 5.0 / 5.0 / 5.0% | 12.1 / 11.9 / 11.9 | 0.5 / 6.3 / 5.2% | 40% | 9% |
+| 50 / 200 / 500, five big days | 10% | 8.4 / 10.1 / 10.0% | 20.2 / 24.2 / 24.0 | 1.9 / 5.8 / 13.1% | 38 / 39 / 38% | 9% |
+
+What it shows:
+
+- The share is the same whatever the number of favorites, which was the requirement: within 0.2 points of the setting for random and recent favorites at every list size. No two favorites were ever back to back.
+- Taken of the plan the share came out near 6% instead of 5%, because thinning leaves out about a sixth of the other photos and never a favorite. The share is now taken of what will be shown (`THINNING_SURVIVAL` = 0.85), which is what puts it at 5.0%.
+- Favorites clustered on a few days gave 35 to 63% same-moment twins at first, because every starred frame of one burst was kept. Starred frames of one moment are now thinned like any other: the deck takes at most one favorite within two minutes of another, and pinned frames of one event are kept apart. That leaves 0.5 to 13% twins (random and recent favorites are at the album's usual 1%). The remaining twins come from the extreme case in which all the favorites are from five days, at the boundary between two plans on the same display day; I did not chase it further.
+- 50 favorites from five days cannot fill 10% (24 slots): they hold about 20 different moments, so the frame shows 20 and gives the rest of the slots back.
+- The effect on the other pools is about the favorites' own share: memories fall from 41% to 38 to 40%, the recent window stays at 9 to 11%.
+- A favorite's return interval is the result, as decided: about 4 days for 50 favorites at 5%, 14 to 16 days for 200, longer than the 19 days simulated for 500. The controls page says it in words.
+
+Design points that changed while building:
+
+- A list shorter than the share's slots shows each favorite once per plan; the unused slots go back to the other pools so the plan keeps its length.
+- The photo gate no longer applies to a starred photo anywhere (the cycle, the single slides, pairs).
+- A new star is not pulled to the front of the deck (the plan's earlier idea); the deck is ordered by when each favorite was last shown, so a newly starred photo, just seen, comes back in its turn.
 
 ## 6. Decisions needed
 
