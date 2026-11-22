@@ -1,7 +1,7 @@
 # Plan: cover days, and define "recent" by date
 
 Status: proposed, for the owner's decision (2026-11-22). Nothing here is built. The album measurements (Step 0)
-were taken the same day with `tools/album_dates.py`; they are in "Measured on the owner's album" and replace the
+were taken the same day with `tools/album_metadata.py`; they are in "Measured on the owner's album" and replace the
 assumptions made earlier in this document. Companion to
 `curation-plan.md`; it would replace parts of Phase 4 item 1 (recency decay).
 
@@ -65,7 +65,7 @@ running `RealAlbumSimulation` and `AlbumCardPreview` so they match (see `tuning-
 
 ## Measured on the owner's album (2026-11-22)
 
-From `tools/album_dates.py` and the real-album simulation (`RealAlbumSimulation`, see
+From `tools/album_metadata.py` and the real-album simulation (`RealAlbumSimulation`, see
 `tuning-the-strategy.md`). Capture times only; nothing identifies a photo.
 
 - **Shape:** 15,481 photos on 2,208 days (2006 to 2026). Median 3 photos a day, 90th percentile 17, 99th 53,
@@ -124,7 +124,7 @@ Shares of screen time and how often one photo of each pool returns (days), with 
 ## Days, timezones and moments (measured 2026-11-22)
 
 The owner travels, so "a day" depends on the timezone, and a day can hold several moments. Measured on the real
-album with `tools/album_dates.py` (which now reports these statistics too).
+album with `tools/album_metadata.py` (which now reports these statistics too).
 
 - **Timezones are recorded.** 98.4% of photos carry their own UTC offset; there are 11 distinct offsets. UTC-7
   29%, UTC+2 25%, UTC-8 24%, UTC-4 9%, UTC+1 4%, UTC-10 4%. About 4,550 photos (29%) were taken at +1 or +2,

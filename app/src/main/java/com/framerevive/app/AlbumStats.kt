@@ -5,7 +5,7 @@ import java.time.LocalDate
 /**
  * What the album looks like, and what the frame's settings mean for it, in numbers a person can act on. Pure
  * arithmetic on capture times and the play history (no per-photo calendar conversion), so it is cheap enough to
- * compute when the controls page is opened. Timezones and moments are left to tools/album_dates.py.
+ * compute when the controls page is opened. Timezones and moments are left to tools/album_metadata.py.
  */
 object AlbumStats {
     private const val DAY_MS = 86_400_000L

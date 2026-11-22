@@ -1,4 +1,4 @@
-"""Tests for album_dates.py. They use a fake network, so no album and no Google access are needed.
+"""Tests for album_metadata.py. They use a fake network, so no album and no Google access are needed.
 
 Run: python3 -m unittest discover -s tools -p 'test_*.py'
 """
@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import album_dates as ad  # noqa: E402
+import album_metadata as ad  # noqa: E402
 
 LINK = "https://photos.app.goo.gl/SecretShortLink123"
 RESOLVED = "https://photos.google.com/share/AF1QipSecretAlbumId?key=SecretAccessKey99"
@@ -67,13 +67,13 @@ class LinkTests(unittest.TestCase):
 
 
 class ReadingTests(unittest.TestCase):
-    def test_reads_every_page_and_keeps_times_only(self):
+    def test_reads_every_page_and_keeps_ids_and_times_only(self):
         first = page([row("a", 10 * DAY, 3600_000), row("b", 11 * DAY)], token="t1")
         second = page([row("c", 12 * DAY, 0)], token="t2")
         third = page([row("d", 13 * DAY, None)])
         fetcher = FakeFetcher(first, [second, third])
-        times = ad.fetch_times(fetcher, LINK)
-        self.assertEqual(times, [(10 * DAY, 3600_000), (11 * DAY, 0), (12 * DAY, 0), (13 * DAY, 0)])
+        photos = ad.fetch_photos(fetcher, LINK)
+        self.assertEqual(photos, [(10 * DAY, 3600_000, "a"), (11 * DAY, 0, "b"), (12 * DAY, 0, "c"), (13 * DAY, 0, "d")])
         batch = [r for r in fetcher.requests if "batchexecute" in r[0]]
         self.assertEqual(len(batch), 2)
         self.assertIn("rpcids=snAcKc", batch[0][0])
@@ -81,38 +81,38 @@ class ReadingTests(unittest.TestCase):
 
     def test_a_photo_seen_twice_counts_once_and_unusable_rows_are_skipped(self):
         first = page([row("a", 5 * DAY), row("a", 5 * DAY), row("nodate", None), row("nourl", 6 * DAY, url=False)])
-        self.assertEqual(ad.fetch_times(FakeFetcher(first), LINK), [(5 * DAY, 0)])
+        self.assertEqual(ad.fetch_photos(FakeFetcher(first), LINK), [(5 * DAY, 0, "a")])
 
     def test_the_next_page_request_uses_the_album_key_token_and_access_key(self):
         fetcher = FakeFetcher(page([row("a", DAY)], token="tok/1+2"), [page([row("b", 2 * DAY)])])
-        ad.fetch_times(fetcher, LINK)
+        ad.fetch_photos(fetcher, LINK)
         body = [r for r in fetcher.requests if "batchexecute" in r[0]][0][1]
         decoded = __import__("urllib.parse", fromlist=["unquote"]).unquote(body.split("&")[0].split("=", 1)[1])
         self.assertEqual(json.loads(json.loads(decoded)[0][0][1]), ["album-key-1", "tok/1+2", None, "SecretAccessKey99"])
 
     def test_an_album_without_photos_is_an_error(self):
         with self.assertRaises(ad.AlbumError):
-            ad.fetch_times(FakeFetcher(page([])), LINK)
+            ad.fetch_photos(FakeFetcher(page([])), LINK)
 
     def test_a_repeating_page_token_stops_the_read(self):
         loop = page([row("a", DAY)], token="same")
         with self.assertRaises(ad.AlbumError):
-            ad.fetch_times(FakeFetcher(loop, [page([row("b", 2 * DAY)], token="same"), loop]), LINK)
+            ad.fetch_photos(FakeFetcher(loop, [page([row("b", 2 * DAY)], token="same"), loop]), LINK)
 
     def test_a_link_that_does_not_open_an_album_is_an_error(self):
         with self.assertRaises(ad.AlbumError):
-            ad.fetch_times(FakeFetcher(page([row("a", DAY)]), resolved="https://photos.google.com/u/0/"), LINK)
+            ad.fetch_photos(FakeFetcher(page([row("a", DAY)]), resolved="https://photos.google.com/u/0/"), LINK)
 
     def test_a_changed_page_format_is_reported_not_guessed_at(self):
         class Broken(FakeFetcher):
             def get(self, url, body=None):
                 return b"<html>nothing here</html>", RESOLVED
         with self.assertRaises(ad.AlbumError):
-            ad.fetch_times(Broken(page([])), LINK)
+            ad.fetch_photos(Broken(page([])), LINK)
 
     def test_the_access_key_falls_back_to_the_albums_own_when_the_address_has_none(self):
         fetcher = FakeFetcher(page([row("a", DAY)], token="t"), [page([row("b", 2 * DAY)])], resolved="https://photos.google.com/share/AF1Qip")
-        ad.fetch_times(fetcher, LINK)
+        ad.fetch_photos(fetcher, LINK)
         body = [r for r in fetcher.requests if "batchexecute" in r[0]][0][1]
         self.assertIn("embedded-key", __import__("urllib.parse", fromlist=["unquote"]).unquote(body))
 
@@ -220,17 +220,41 @@ class SummaryTests(unittest.TestCase):
 
 
 class FileAndPrivacyTests(unittest.TestCase):
-    def test_the_csv_holds_times_only_and_is_readable_back(self):
+    def test_the_csv_holds_ids_and_times_only_and_is_readable_back(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "sub", "dates.csv")
-            ad.write_csv(path, [(1000, 0), (2000, 3600)])
+            ad.write_csv(path, [(1000, 0, "idA"), (2000, 3600, "idB")])
             with open(path) as written:
                 text = written.read()
-            self.assertEqual(text, "takenMs,offsetMs\n1000,0\n2000,3600\n")
-            self.assertEqual(ad.read_csv(path), [(1000, 0), (2000, 3600)])
+            self.assertEqual(text, "takenMs,offsetMs,id\n1000,0,idA\n2000,3600,idB\n")
+            self.assertEqual(ad.read_csv(path), [(1000, 0, "idA"), (2000, 3600, "idB")])
             self.assertEqual(os.stat(path).st_mode & 0o077, 0, "only the owner may read it")
 
-    def test_a_file_that_is_not_an_album_dates_file_is_refused(self):
+    def test_the_file_is_named_after_the_album_and_never_replaced_silently(self):
+        self.assertEqual(ad.slug("My trip, 2026!"), "my-trip-2026")
+        self.assertEqual(ad.slug(None), "album")
+        self.assertEqual(ad.slug("\u65e5\u672c"), "album")
+        self.assertTrue(ad.default_path("My trip").endswith(os.path.join("local", "album-metadata-my-trip.csv")))
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "keep.csv")
+            with open(path, "w") as keep:
+                keep.write("precious")
+            code, out, err = self.run_main(FakeFetcher(page([row("a", DAY)])), ["--out", path])
+            self.assertEqual(code, 1)
+            self.assertIn("--overwrite", err)
+            with open(path) as keep:
+                self.assertEqual(keep.read(), "precious")
+            code, out, err = self.run_main(FakeFetcher(page([row("a", DAY)])), ["--out", path, "--overwrite"])
+            self.assertEqual(code, 0)
+
+    def test_an_older_file_without_ids_is_still_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "old.csv")
+            with open(path, "w") as old:
+                old.write("takenMs,offsetMs\n1000,0\n")
+            self.assertEqual(ad.read_csv(path), [(1000, 0, "")])
+
+    def test_a_file_that_is_not_an_album_metadata_file_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "other.csv")
             with open(path, "w") as other:
@@ -254,16 +278,19 @@ class FileAndPrivacyTests(unittest.TestCase):
                 os.environ[ad.LINK_ENV] = old
         return code, out.getvalue(), err.getvalue()
 
-    def test_a_run_prints_neither_the_link_nor_its_key_and_writes_no_identifiers(self):
+    def test_a_run_prints_neither_the_link_nor_its_key_and_writes_no_addresses(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "dates.csv")
             fetcher = FakeFetcher(page([row("photoid-1", 10 * DAY), row("photoid-2", 11 * DAY)]))
             code, out, err = self.run_main(fetcher, ["--out", path])
             self.assertEqual(code, 0)
             with open(path) as written:
-                shown = out + err + written.read()
-            for secret in ("SecretShortLink123", "SecretAccessKey99", "AF1QipSecretAlbumId", "photoid-1", "lh3.example", "My trip"):
+                file_text = written.read()
+            self.assertIn(",photoid-1\n", file_text)
+            shown = out + err + file_text
+            for secret in ("SecretShortLink123", "SecretAccessKey99", "AF1QipSecretAlbumId", "lh3.example", "My trip"):
                 self.assertNotIn(secret, shown)
+            self.assertNotIn("photoid-1", out + err)
             self.assertIn("2 photos on 2 days", out)
 
     def test_an_error_message_never_carries_the_link_or_the_key(self):
@@ -298,7 +325,7 @@ class FileAndPrivacyTests(unittest.TestCase):
     def test_from_csv_summarizes_without_a_link_or_network(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "dates.csv")
-            ad.write_csv(path, [(10 * DAY, 0), (10 * DAY + 1000, 0), (12 * DAY, 0)])
+            ad.write_csv(path, [(10 * DAY, 0, "a"), (10 * DAY + 1000, 0, "b"), (12 * DAY, 0, "c")])
             code, out, err = self.run_main(None, ["--from-csv", path], env=None)
             self.assertEqual(code, 0)
             self.assertIn("3 photos on 2 days", out)

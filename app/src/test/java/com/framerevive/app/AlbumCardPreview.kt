@@ -17,7 +17,7 @@ import org.junit.Test
 class AlbumCardPreview {
     @Test fun writesTheControlsPageForTheRealAlbum() {
         val source = AlbumFixture.source()
-        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", source != null)
+        assumeTrue("no album dates file; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", source != null)
         val photos = AlbumFixture.load()!!
         val rounds = (System.getenv("FRAMEREVIVE_PREVIEW_ROUNDS") ?: "20").toInt()
         val today = LocalDate.now()

@@ -9,6 +9,7 @@
 
 ## 0.5.26-alpha
 
+- Rename `tools/album_dates.py` to `tools/album_metadata.py` and add each photo's id to its CSV (`takenMs,offsetMs,id`), so two albums can be compared. Older files without the id column still read.
 - Add Show Pair: two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did.
   Portrait frames stack two landscape photos; landscape frames place two portrait photos side by side.
 - Share one zoom factor across both halves, refuse pairs that would crop more than 30%, and fall back to the

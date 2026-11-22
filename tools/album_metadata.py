@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-r"""Read the capture times of a shared Google Photos album and keep nothing else.
+r"""Read the ids and capture times of a shared Google Photos album and keep nothing else.
 
 Why: the frame's photo-selection strategy depends on how an album's photos fall on days (how many days, how
-many photos on a big day, how much is recent). This writes only `takenMs,offsetMs` per photo, with no photo
-ids, no addresses and no images, so the file can drive the playback simulation (see
-docs/tuning-the-strategy.md) without exposing the album.
+many photos on a big day, how much is recent). This writes only `takenMs,offsetMs,id` per photo, with no
+addresses and no images. The id is the photo's media key: it names a photo but grants no access to the album, and
+the file stays in a folder git ignores. The ids also let two albums be compared (does a photo keep its id in a
+second album?, see docs/favorites-plan.md). The file drives the playback simulation (see docs/tuning-the-strategy.md).
 
 Usage (the link grants access to the album, so it is read from the environment, never from the command line
 where it would show in process lists and shell history):
 
     export FRAMEREVIVE_ALBUM_LINK='https://photos.app.goo.gl/...'
-    python3 tools/album_dates.py                  # writes local/album-dates.csv and prints a summary
-    python3 tools/album_dates.py --from-csv local/album-dates.csv   # summary only, no network
+    python3 tools/album_metadata.py               # writes local/album-metadata-<album title>.csv and prints a summary
+    python3 tools/album_metadata.py --from-csv local/album-metadata-<album title>.csv   # summary only, no network
 
 Read-only: it fetches the public shared page and its album pages, exactly as the frame does, and uses no
 account cookies. It prints neither the link nor its access key. Standard library only.
@@ -31,12 +32,13 @@ import urllib.parse
 import urllib.request
 
 LINK_ENV = "FRAMEREVIVE_ALBUM_LINK"
+CSV_HEADER = "takenMs,offsetMs,id"
 DAY_MS = 86_400_000
 HOUR_MS = 3_600_000
 MAX_PAGES = 2000           # about 100 photos a page; a guard against a pagination loop
 MAX_BYTES = 25_000_000
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_OUT = os.path.join(os.path.dirname(HERE), "local", "album-dates.csv")
+LOCAL_DIR = os.path.join(os.path.dirname(HERE), "local")
 
 
 class AlbumError(Exception):
@@ -180,12 +182,12 @@ def album_rpc(fetcher, global_data, source_path, auth_key, rpc_id, data):
 
 
 def page_times(page, found):
-    """Adds (takenMs, offsetMs) for each photo on a page to `found`, keyed by id so a repeat is counted once."""
+    """Adds (takenMs, offsetMs, id) for each photo on a page to `found`, keyed by id so a repeat is counted once."""
     for row in at(page, 1) or []:
         photo_id, url, taken = at(row, 0), at(row, 1, 0), at(row, 2)
         if photo_id and url and taken is not None:
             offset = at(row, 4)
-            found[str(photo_id)] = (int(taken), int(offset) if offset is not None else 0)
+            found[str(photo_id)] = (int(taken), int(offset) if offset is not None else 0, str(photo_id))
 
 
 def secrets_from(address):
@@ -199,8 +201,20 @@ def secrets_from(address):
     return found
 
 
-def fetch_times(fetcher, link, progress=None, secrets=None):
-    """Every photo's capture time in the shared album, as a list of (takenMs, offsetMs).
+def slug(title):
+    """A file-name-safe form of an album title: lower case letters and digits joined by hyphens."""
+    words = re.sub(r"[^a-z0-9]+", "-", str(title or "").lower()).strip("-")[:40].strip("-")
+    return words or "album"
+
+
+def default_path(title):
+    return os.path.join(LOCAL_DIR, "album-metadata-%s.csv" % slug(title))
+
+
+def fetch_photos(fetcher, link, progress=None, secrets=None, info=None):
+    """Every photo in the shared album, as a list of (takenMs, offsetMs, id).
+
+    `info`, when given, receives the album's title as info["title"].
 
     Anything that grants access to the album (the link, the address it resolves to, the access key) is added to
     `secrets`, so a caller can scrub it from messages.
@@ -215,6 +229,8 @@ def fetch_times(fetcher, link, progress=None, secrets=None):
     if secrets is not None:
         secrets.add(auth_key)
     album_key = at(page, 3, 0)
+    if info is not None:
+        info["title"] = at(page, 3, 1)
     if not album_key:
         raise AlbumError("Shared album page format changed (album key).")
     found, seen = {}, set()
@@ -238,29 +254,30 @@ def fetch_times(fetcher, link, progress=None, secrets=None):
 
 # ---- the CSV and the summary ------------------------------------------------------------------------------
 
-def write_csv(path, times):
+def write_csv(path, photos):
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", newline="") as out:
-        out.write("takenMs,offsetMs\n")
-        for taken, offset in times:
-            out.write("%d,%d\n" % (taken, offset))
+        out.write(CSV_HEADER + "\n")
+        for taken, offset, photo_id in photos:
+            out.write("%d,%d,%s\n" % (taken, offset, photo_id))
 
 
 def read_csv(path):
-    times = []
+    """(takenMs, offsetMs, id) per photo; an older file without the id column gives an empty id."""
+    photos = []
     with open(path) as source:
         header = source.readline().strip()
-        if header != "takenMs,offsetMs":
-            raise AlbumError("That file is not an album dates file (expected the header takenMs,offsetMs).")
+        if header not in (CSV_HEADER, "takenMs,offsetMs"):
+            raise AlbumError("That file is not an album metadata file (expected the header %s)." % CSV_HEADER)
         for line in source:
             line = line.strip()
             if line:
-                taken, offset = line.split(",")
-                times.append((int(taken), int(offset)))
-    return times
+                taken, offset, *rest = line.split(",")
+                photos.append((int(taken), int(offset), rest[0] if rest else ""))
+    return photos
 
 
 def _date(epoch_day):
@@ -371,8 +388,9 @@ def scrub(text, secrets):
 def main(argv=None, fetcher=None, today=None, stdout=None, stderr=None):
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
-    parser = argparse.ArgumentParser(description="Write an album's capture times to a CSV and summarize them.")
-    parser.add_argument("--out", default=DEFAULT_OUT, help="CSV to write (default: local/album-dates.csv, which git ignores)")
+    parser = argparse.ArgumentParser(description="Write an album's ids and capture times to a CSV and summarize them.")
+    parser.add_argument("--out", help="CSV to write (default: local/album-metadata-<album title>.csv, which git ignores)")
+    parser.add_argument("--overwrite", action="store_true", help="replace the CSV if it already exists (otherwise that is an error)")
     parser.add_argument("--link-env", default=LINK_ENV, help="environment variable holding the shared album link")
     parser.add_argument("--from-csv", help="summarize an existing CSV instead of reading the album")
     args = parser.parse_args(argv)
@@ -380,7 +398,7 @@ def main(argv=None, fetcher=None, today=None, stdout=None, stderr=None):
     secrets = set()
     try:
         if args.from_csv:
-            times = read_csv(args.from_csv)
+            photos = read_csv(args.from_csv)
         else:
             link = os.environ.get(args.link_env, "").strip()
             if not link:
@@ -393,10 +411,14 @@ def main(argv=None, fetcher=None, today=None, stdout=None, stderr=None):
                     print("  read %d photos..." % n, file=stderr)
                     last[0] = n
             secrets.update(secrets_from(link))
-            times = fetch_times(fetcher, link, progress, secrets)
-            write_csv(args.out, times)
-            print("Wrote %d capture times to %s (times only: no ids, no addresses)." % (len(times), args.out), file=stdout)
-        print(format_summary(summarize(times, today)), file=stdout)
+            info = {}
+            photos = fetch_photos(fetcher, link, progress, secrets, info)
+            out = args.out or default_path(info.get("title"))
+            if os.path.exists(out) and not args.overwrite and out != os.devnull:
+                raise AlbumError("%s already exists; pass --overwrite to replace it, or --out to write somewhere else." % out)
+            write_csv(out, photos)
+            print("Wrote %d photos to %s (ids and capture times only: no addresses)." % (len(photos), out), file=stdout)
+        print(format_summary(summarize([(taken, offset) for taken, offset, _ in photos], today)), file=stdout)
         return 0
     except AlbumError as error:
         print("Error: " + scrub(str(error), secrets), file=stderr)

@@ -7,8 +7,9 @@ real numbers before it goes on a frame.
 
 ## Privacy
 
-`tools/album_dates.py` writes one line per photo: `takenMs,offsetMs`. No photo ids, no addresses, no images, no
-album title. The default output, `local/album-dates.csv`, is in a folder git ignores. Capture dates still say
+`tools/album_metadata.py` writes one line per photo: `takenMs,offsetMs,id`. The id is the photo's media key (it names a photo but
+grants no access); there are no addresses, no images and no album title. The default output,
+`local/album-metadata-<album title>.csv` (the title comes from the album page), is in a folder git ignores. An existing file is never replaced unless you pass `--overwrite`. Capture dates still say
 something about a life (when you travel, when a child was born), so treat the file as private: do not commit it
 or attach it to an issue. If you want to share what you found, paste the summary the script prints, which holds
 counts and ranges, not individual dates, apart from the five busiest days.
@@ -24,10 +25,10 @@ access key, and error messages have both removed.
 
    ```bash
    export FRAMEREVIVE_ALBUM_LINK='https://photos.app.goo.gl/...'
-   python3 tools/album_dates.py
+   python3 tools/album_metadata.py
    ```
 
-   It prints a summary and writes `local/album-dates.csv`. `--from-csv FILE` summarizes a file without any
+   It prints a summary and writes `local/album-metadata-<album title>.csv`. `--from-csv FILE` summarizes a file without any
    network, and `--out FILE` changes where the CSV goes. The summary lists photos and days, photos per day
    (median, 90th and 99th percentile, most), how many days have a single photo, how much of the album sits on
    big days, the busiest days, the last 1, 3, 6, 12 and 24 months, each year, the timezones in use (and how many
@@ -39,7 +40,7 @@ access key, and error messages have both removed.
    ./gradlew :app:testDebugUnitTest --tests '*RealAlbumSimulation*' --rerun -i
    ```
 
-   (`--rerun` because Gradle does not notice that the CSV changed.) The test finds `local/album-dates.csv`, or
+   (`--rerun` because Gradle does not notice that the CSV changed.) The test finds `local/album-metadata.csv` (rename or copy your file to that name, or point `FRAMEREVIVE_ALBUM_DATES` at it; or an older `local/album-dates.csv`), or
    the file named by `FRAMEREVIVE_ALBUM_DATES`, and skips itself when there is none. For each setting of
    "Favor newer photos" it plays rounds with a fake clock and prints, after 1, 5, 10 and 20 rounds:
 

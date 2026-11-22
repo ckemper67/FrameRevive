@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * Runs the real selection pipeline over an album's capture times, so a maintainer can see how a strategy treats
  * days (how many it reaches, how much a big day takes) on a real album's shape. The times come from
- * `tools/album_dates.py`: one `takenMs,offsetMs` line per photo, no ids and no addresses. See
+ * `tools/album_metadata.py`: one `takenMs,offsetMs,id` line per photo, no addresses. See
  * docs/tuning-the-strategy.md. Without that file the report is skipped.
  */
 class RealAlbumSimulation {
@@ -142,7 +142,7 @@ class RealAlbumSimulation {
 
     @Test fun collageThemeReport() {
         val photos = AlbumFixture.load()
-        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
+        assumeTrue("no album dates file; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null)
         println(collageReport("old same-day pool, 6 candidates", photos!!, 300, lookahead = 6) { ctx, queue, avoidDays ->
             CollageThemeSelection.bestDay(ctx.photos, 4, ctx.cachedIds, queue.ineligible(emptySet()), avoidDays, seen = ctx.seen) })
         for (lookahead in listOf(6, 8, 10, 12)) for (theme in CollageThemes.all)
@@ -207,7 +207,7 @@ class RealAlbumSimulation {
 
     @Test fun favoritesReport() {
         val photos = AlbumFixture.load()
-        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
+        assumeTrue("no album dates file; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null)
         println(favoritesReport(photos!!, 0, "random", 0))
         for (percent in listOf(5, 10)) for (how in listOf("random", "recent three years", "a few big days")) for (n in listOf(50, 200, 500))
             println(favoritesReport(photos, n, how, percent))
@@ -215,7 +215,7 @@ class RealAlbumSimulation {
 
     @Test fun realAlbumReport() {
         val photos = AlbumFixture.load()
-        assumeTrue("no album dates file; run tools/album_dates.py (see docs/tuning-the-strategy.md)", photos != null)
+        assumeTrue("no album dates file; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null)
         val today = LocalDate.now()
         println(albumLine(photos!!))
         for (recency in Recency.entries) {
