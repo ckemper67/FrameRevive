@@ -9,6 +9,8 @@
 
 ## 0.5.26-alpha
 
+- Add a favorites album: connect a second shared album and every photo in it becomes a favorite. A main-album photo with the same capture time (when only one has it) is hidden so nothing shows twice. Un-starring one of its photos on the frame hides it until it is starred again.
+- Skip a single photo whose bytes (md5) match another photo shown in the last 30 days, which also catches the same picture under two ids.
 - Rename `tools/album_dates.py` to `tools/album_metadata.py` and add each photo's id to its CSV (`takenMs,offsetMs,id`), so two albums can be compared. Older files without the id column still read.
 - Add Show Pair: two photos of the orientation opposite the frame fill the screen, as Lenovo's frame did.
   Portrait frames stack two landscape photos; landscape frames place two portrait photos side by side.

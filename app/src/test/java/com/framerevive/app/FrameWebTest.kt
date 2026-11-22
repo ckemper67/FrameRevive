@@ -97,6 +97,7 @@ class FrameWebTest {
         val hostile = "<script>x</script>\t1\tframe\t0"
         val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))
         assertFalse(page.contains("<script>x</script>")); assertTrue(page.contains("&lt;script&gt;x"))
+        assertTrue(page.contains("name=\"favoritesLink\"")); assertTrue(page.contains("value=\"favoritesAlbum\"")); assertTrue(page.contains("value=\"checkFavoritesAlbum\""))
         assertTrue(page.contains("name=\"favoritesImport\"")); assertTrue(page.contains("value=\"importFavorites\""))
     }
 }

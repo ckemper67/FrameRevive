@@ -29,6 +29,9 @@ class Favorites {
     private val records = LinkedHashMap<String, Favorite>()
     @Volatile var ids: Set<String> = emptySet()
         private set
+    /** Photos un-starred after Google seeded them. They stay hidden until the owner stars them again. */
+    @Volatile var vetoed: Set<String> = emptySet()
+        private set
 
     val count: Int get() = ids.size
     val fromGoogle: Int @Synchronized get() = records.count { (_, f) -> !f.vetoed && f.origin == Favorite.GOOGLE }
@@ -78,7 +81,10 @@ class Favorites {
         import(text)
     }
 
-    private fun publish() { ids = records.filterValues { !it.vetoed }.keys.toSet() }
+    private fun publish() {
+        ids = records.filterValues { !it.vetoed }.keys.toSet()
+        vetoed = records.filterValues { it.vetoed }.keys.toSet()
+    }
 
     companion object {
         /** Lines that are not four fields are skipped, so a damaged file loses a line, never the list. */

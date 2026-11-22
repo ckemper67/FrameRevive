@@ -72,9 +72,13 @@ Recommendation: B, with C as the one-time bulk import. B fits how the frame alre
 
 History checked (git): the frame was first signed-in only; 0.5.3-alpha (2026-10-21) added shared links as a cookie-free source; 0.5.23/0.5.24 (2026-10-29) retired new signed-in sessions and album selection. The owner's frame uses the shared link, so A is not available without undoing that decision.
 
-The one thing to verify for B (spike F0): that a photo has the same id in the main album and in the favorites album. The existing tool (`tools/album_metadata.py`) can read both links on the dev machine; the owner makes a small shared album with a few photos that are also in the main album, and the ids are compared. If they differ, the frame matches on capture time (second and size) instead, and tolerates a few misses.
+Spike F0 result (2026-11-22, owner's albums): a photo does NOT keep its id across two shared albums. None of the 204 photos in the favorites album shares an id with the main album's 15,481. By exact capture time, 156 match one main photo, 23 match a time that two to six main photos share (bursts), and 25 match nothing (probably not in the main album at all).
 
-Seed semantics: a seed adds ids with `origin = google`, never removes anything, and skips `vetoed` ids. Re-seeding on the daily album check is fine; un-starring on Google does not remove it from the frame (the frame has no way to tell a Google un-star from a missing seed). The controls page shows "N favorites (M from Google)" and a button "Check Google again".
+Decision: the favorites album is itself the pool, so no matching is needed to show a favorite. Each photo in it is a favorite with its own id and address, shown as it is, and stars set on the frame sit beside them. The only use of the capture time is to avoid showing the same picture twice: a favorites-album photo that matches exactly one main-album photo by capture time hides that main-album copy from the ordinary pool. An ambiguous match hides nothing, and the worst case is that the same picture appears once more.
+
+Second rule, built on the same branch: the frame keeps the md5 of every photo it downloads (`PictureDuplicates`, `photo-md5.txt`), and a single photo is skipped when another id with the same md5 was shown in the last 30 days. Measured on the owner's albums (179 time-matched favorites, downloaded at one size): 167 (93%) have a byte-identical copy, 21 of the 23 burst cases single out exactly one frame, and none matched two. A miss leaves both copies in rotation. Photo addresses are no help: none of the 204 favorites shares an address with the main album.
+
+Seed semantics: every photo in the favorites album is added to the list with `origin = google`, never removing anything, and skipping `vetoed` ids. The album is read again with the main one every hour, and "Check again" on the controls page reads it at once. Un-starring a photo that came from the favorites album sets `vetoed`: it leaves the playback pool, its main-album twin is not hidden any more, and it stays out until it is starred again (starring a twin in the main album works). Un-starring on Google does not remove it from the frame, because the frame cannot tell an un-star from a missing seed; disconnecting the album leaves the list as it is. The controls page shows "N favorites (M from Google)" and the album's own line: photos, how many are shown, how many are hidden here, how many main-album copies are hidden.
 
 ## 4. Showing favorites more often
 
@@ -142,10 +146,10 @@ Each on its own branch, stacked, with the simulation numbers recorded in this do
 
 | Phase | Content | Why this order |
 | --- | --- | --- |
-| F0 | Spike: does an item keep its id across two shared albums (B)? Needs the owner to make a small shared album of a few photos that are also in the main album. No app code. | Decides whether B matches by id or by capture time. |
+| F0 | Spike: does an item keep its id across two shared albums (B)? Done: no. See the F0 result above. | Decided: the favorites album is its own pool; capture time only hides the unique main-album twin. |
 | F1 | Store (`favorites.tsv`), in-memory set, star in the overlay and on the Everyday page, the Star button setting, feedback, un-star, export and import, the card line. Tests for persistence across restart, album refresh and album switch. | Useful alone; nothing changes in what is shown. |
 | F2 | Weighting: a fixed share of the plan, favorites deck, spacing, burst and gate exemptions, the three-way setting, Your album card text, simulation report. | Must be tuned before seeding can add hundreds. |
-| F3 | Seeding by the route F0 found, with the `vetoed` rules and the Check Google again button. | Last, because it adds the volume the weighting has to handle. |
+| F3 | Built: the favorites album (`FavoriteAlbum.merge`, `favorites-album.json`, a card with the link and Check again), seeded with the `vetoed` rules. | Last, because it adds the volume the weighting has to handle. |
 | F4 | Starring one picture of a collage, optional favorites collage theme. | Polish. |
 
 ## Progress

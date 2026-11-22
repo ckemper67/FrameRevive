@@ -96,6 +96,11 @@ class MainActivity : Activity() {
     /** Perceptual hash per photo, from the same analysis copy the quality gate uses. */
     private val hashes = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val hashFile by lazy { File(filesDir,"photo-hashes.txt") }
+    /** The md5 of every photo fetched, so a picture that is in both albums is not shown twice in a row. */
+    private val duplicates = PictureDuplicates()
+    private val md5File by lazy { File(filesDir,"photo-md5.txt") }
+    @Volatile private var duplicatesSkipped = 0
+    private var duplicateRun = 0
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
     private val favorites = Favorites()
     private val favoritesFile by lazy { File(filesDir,"favorites.tsv") }
@@ -159,6 +164,17 @@ class MainActivity : Activity() {
     private lateinit var night: TextView
     private val prefs by lazy { getSharedPreferences("frame-settings", MODE_PRIVATE) }
     private var photos = emptyList<FramePhoto>()
+    /** The main album as synced, before the favorites album is merged into [photos]. */
+    @Volatile private var mainPhotos = emptyList<FramePhoto>()
+    /** The second shared album ("Frame favorites"): its photos are favorites as they are. */
+    @Volatile private var favoriteAlbum = emptyList<FramePhoto>()
+    @Volatile private var favoriteAlbumLink = ""
+    @Volatile private var favoriteAlbumTitle = ""
+    @Volatile private var favoriteAlbumNote = ""
+    @Volatile private var favoritesReady = false
+    @Volatile private var lastMerge = FavoriteAlbum.Merged(emptyList(), 0, 0)
+    private val syncingFavorites = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val favoriteAlbumFile by lazy { File(filesDir, "favorites-album.json") }
     private var playlist by chooser::playlist
     private var day = LocalDate.now()
     private var index by chooser::index
@@ -189,7 +205,7 @@ class MainActivity : Activity() {
     private val advance = Runnable { if (!playbackPaused) showNext() }
     private val hide = Runnable { if (displayed) controls.visibility = View.GONE }
     private val refresh = object : Runnable {
-        override fun run() { sync(); handler.postDelayed(this, 60 * 60 * 1000L) }
+        override fun run() { sync(); syncFavoriteAlbum(); handler.postDelayed(this, 60 * 60 * 1000L) }
     }
     private val countCheck = object : Runnable {
         override fun run() { checkAlbumCount(); handler.postDelayed(this, 120_000) }
@@ -216,7 +232,11 @@ class MainActivity : Activity() {
         Thread {
             playHistory.putAll(PhotoDeck.load(historyFile))
             favorites.load(favoritesFile)
+            duplicates.load(md5File)
+            favoritesReady = true
             handler.post { if (::favoriteBadge.isInitialized) updateFavoriteBadge() }
+            // The catalog may have been read before the saved stars, so seed and hide un-starred ones now.
+            if (favoriteAlbum.isNotEmpty()) network.execute { applyCombined() }
             runCatching {
                 if (hashFile.exists()) hashFile.forEachLine { line ->
                     val at = line.indexOf('\t')
@@ -342,8 +362,79 @@ class MainActivity : Activity() {
         else runCatching { client.loadSavedSession() }
         // Cached catalog path: prepare the recency order here too, off the rebuild, or the deck sorts
         // 15,000 photos on the UI thread every time the frame starts.
-        photosByRecency = list.sortedByDescending { it.takenMs }
-        photos = list; rebuild()
+        mainPhotos = list
+        loadFavoriteAlbum()
+        val combined = combine(list)
+        photosByRecency = combined.byRecency
+        photos = combined.photos; rebuild()
+    }
+
+    private class Combined(val photos: List<FramePhoto>, val byRecency: List<FramePhoto>)
+
+    /**
+     * The photos playback works from: the main album and the favorites album, with the main twins of live favorites
+     * left out. Seeds the favorites album's photos as favorites once the saved stars are read (so an un-starred one is
+     * not seeded back). Sorts the album once, so it belongs on a worker thread.
+     */
+    private fun combine(main: List<FramePhoto>): Combined {
+        if (favoritesReady && favoriteAlbum.isNotEmpty() && favorites.seed(favoriteAlbum.map { it.id }, System.currentTimeMillis()) > 0) saveFavorites()
+        val merged = FavoriteAlbum.merge(main, favoriteAlbum, favorites.vetoed)
+        lastMerge = merged
+        return Combined(merged.photos, merged.photos.sortedByDescending { it.takenMs })
+    }
+
+    /** Rebuilds the playback pool after the favorites album or the stars changed. Runs on the network thread. */
+    private fun applyCombined() {
+        if (mainPhotos.isEmpty()) return
+        val combined = combine(mainPhotos)
+        handler.post { if (!closed) { photosByRecency = combined.byRecency; photos = combined.photos; rebuild(); planPreloads() } }
+    }
+
+    private fun loadFavoriteAlbum() {
+        runCatching {
+            if (!favoriteAlbumFile.exists()) return
+            val json = JSONObject(favoriteAlbumFile.readText())
+            val rows = json.getJSONArray("photos")
+            favoriteAlbum = (0 until rows.length()).map { i ->
+                val p = rows.getJSONObject(i)
+                FramePhoto(p.getString("id"), p.getString("url"), p.getLong("takenMs"), p.optLong("offsetMs"))
+            }
+            favoriteAlbumLink = json.optString("link"); favoriteAlbumTitle = json.optString("title")
+        }
+    }
+
+    /** Reads the favorites album like the main one, without cookies. An empty link disconnects it. */
+    private fun syncFavoriteAlbum(link: String = favoriteAlbumLink) {
+        if (link.isBlank() || !syncingFavorites.compareAndSet(false, true)) return
+        network.execute {
+            try {
+                val shared = PrivatePhotosClient(this, anonymous = true).syncShared(link) { }
+                val rows = JSONArray()
+                shared.photos.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs)) }
+                PrivatePhotosClient.writeAtomic(favoriteAlbumFile, JSONObject().put("link", link).put("title", shared.title).put("photos", rows)
+                    .put("syncedAt", System.currentTimeMillis()).toString().toByteArray(Charsets.UTF_8))
+                favoriteAlbumLink = link; favoriteAlbumTitle = shared.title; favoriteAlbum = shared.photos; favoriteAlbumNote = ""
+                applyCombined()
+            } catch (e: Exception) {
+                favoriteAlbumNote = "Could not read the favorites album: ${safeMessage(e)} The last list stays in use."
+            } finally { syncingFavorites.set(false) }
+        }
+    }
+
+    private fun disconnectFavoriteAlbum() {
+        favoriteAlbumFile.delete()
+        favoriteAlbum = emptyList(); favoriteAlbumLink = ""; favoriteAlbumTitle = ""; favoriteAlbumNote = ""
+        lastMerge = FavoriteAlbum.Merged(emptyList(), 0, 0)
+        network.execute { applyCombined() }
+    }
+
+    private fun favoriteAlbumSummary(): String {
+        if (favoriteAlbumLink.isBlank()) return "No favorites album connected."
+        val vetoedHere = favoriteAlbum.count { it.id in favorites.vetoed }
+        val base = "$favoriteAlbumTitle: ${favoriteAlbum.size} photos, ${lastMerge.live} shown as favorites" +
+            (if (vetoedHere > 0) ", $vetoedHere un-starred here and hidden" else "") +
+            (if (lastMerge.hidden > 0) ", ${lastMerge.hidden} copies in the main album hidden so nothing shows twice." else ".")
+        return if (favoriteAlbumNote.isBlank()) base else "$base $favoriteAlbumNote"
     }
 
     private fun saveCatalog(json: JSONObject) = PrivatePhotosClient.writeAtomic(File(filesDir, "album.json"), json.toString().toByteArray(Charsets.UTF_8))
@@ -433,6 +524,8 @@ class MainActivity : Activity() {
     private fun toggleFavorite(photo: FramePhoto): String {
         val on = favorites.toggle(photo.id, System.currentTimeMillis())
         saveFavorites()
+        // A photo from the favorites album leaves the pool when un-starred and returns when starred again.
+        if (favoriteAlbum.any { it.id == photo.id }) network.execute { applyCombined() }
         val message = if (on) "Added to favorites" else "Removed from favorites"
         handler.post { showFavoriteNotice(message) }
         return message + "."
@@ -576,6 +669,7 @@ class MainActivity : Activity() {
             check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
             if(!current()) return
             synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
+            duplicates.know(p.id, PictureDuplicates.md5(bytes))
             cachedIds.add(p.id)
             prefs.edit().putStringSet("cachedIds",cachedIds.toSet()).apply()
             fetchAttempts.remove(p.id); fetchRetryAt.remove(p.id)
@@ -587,6 +681,13 @@ class MainActivity : Activity() {
             prefs.edit().putString("lastPhotoError",safeMessage(e)).putLong("lastPhotoErrorAt",System.currentTimeMillis()).apply()
             throw e
         }
+    }
+    /** The photo's md5, read from its cached file the first time if it was fetched before md5s were kept. */
+    private fun ensureMd5(p: FramePhoto): String? {
+        duplicates.md5Of(p.id)?.let { return it }
+        ensureCached(p)
+        val bytes = synchronized(cacheLock) { runCatching { cached(p).readBytes() }.getOrNull() } ?: return null
+        return PictureDuplicates.md5(bytes).also { duplicates.know(p.id, it) }
     }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
@@ -604,7 +705,7 @@ class MainActivity : Activity() {
         }
     }
     private fun flushQuality() {
-        if (!qualityDirty) return
+        if (!qualityDirty && !duplicates.dirty) return
         qualityDirty = false; qualityPending = 0
         runCatching {
             val rows = JSONObject(); qualityScores.forEach { (id, score) -> rows.put(id, score.toDouble()) }
@@ -615,6 +716,7 @@ class MainActivity : Activity() {
             val text = StringBuilder(hashes.size * 48)
             hashes.forEach { (id, hash) -> text.append(id).append('\t').append(java.lang.Long.toHexString(hash)).append('\n') }
             PrivatePhotosClient.writeAtomic(hashFile, text.toString().toByteArray(Charsets.UTF_8))
+            PrivatePhotosClient.writeAtomic(md5File, duplicates.export().toByteArray(Charsets.UTF_8))
         }
     }
     private fun qualityMedian(): Float? {
@@ -761,6 +863,16 @@ class MainActivity : Activity() {
         images.execute {
             if (ticket != generation || closed || !active || sleeping) return@execute
             try {
+                // The same picture can sit in both albums under two ids; skip it if its twin was on the panel lately.
+                // Collages and pairs are not checked, and a run of skips ends so the frame never goes blank.
+                if (!fromHistory && !slide.collage && !slide.pair && duplicateRun < 5) {
+                    val photo = slide.photos.first()
+                    if (ensureMd5(photo) != null && duplicates.recentTwin(photo.id, { playHistory[it]?.lastShownMs }, System.currentTimeMillis()) != null) {
+                        duplicateRun++; duplicatesSkipped++
+                        handler.post { if (!closed && active && ticket == generation) { setPhotoLoading(false); showNext() } }
+                        return@execute
+                    }
+                }
                 val b = if(slide.collage || slide.pair) {
                     val d=resources.displayMetrics
                     // Multi-photo slides cover the frame with the least cropping the photos allow.
@@ -778,6 +890,7 @@ class MainActivity : Activity() {
                     setPhotoLoading(false)
                     image.setPhoto(b, background)
                     markDisplayed(slide,fromHistory)
+                    duplicateRun = 0
                     displayed = true; failures = 0
                     planPreloads()
                     if (android.os.SystemClock.uptimeMillis() >= controlsUntil) controls.visibility = View.GONE
@@ -823,7 +936,8 @@ class MainActivity : Activity() {
                 val actualTitle = shared?.title ?: targetTitle
                 val fresh = (shared?.photos ?: reader.sync(targetId, progress))
                 // Sorted once here, on the sync thread: the deck cannot afford to sort 15,000 photos per rebuild.
-                val byRecency = fresh.sortedByDescending { it.takenMs }
+                val combined = combine(fresh)
+                val byRecency = combined.byRecency
                     .map { p -> p.copy(discoveredMs = if (changingAlbum) 0 else existing[p.id]?.discoveredMs ?: discovered) }
                 val rows = JSONArray()
                 fresh.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs).put("discoveredMs",p.discoveredMs)) }
@@ -832,26 +946,27 @@ class MainActivity : Activity() {
                     .remove("lastSyncError").remove("lastCountError").remove("nextSyncAttemptAt").apply()
                 syncAttempts = 0
                 handler.removeCallbacks(syncRetry)
-                val valid = fresh.map { cached(it).name }.toHashSet()
+                mainPhotos = fresh
+                val valid = combined.photos.map { cached(it).name }.toHashSet()
                 File(filesDir, "photo-cache").listFiles()?.filter { it.extension == "jpg" && it.name !in valid }?.forEach { it.delete() }
                 handler.post {
                     if (!closed) {
                         // Refresh history URLs and remove deleted items while retaining navigation within this album.
                         if (changingAlbum) { history.clear(); chooser.resetForAlbum() } else {
-                            val updated=fresh.associateBy { it.id }
+                            val updated=combined.photos.associateBy { it.id }
                             history.transform { old -> old.photos.mapNotNull { updated[it.id] }.takeIf { it.size == old.photos.size }?.let { FrameSlide(it, old.mode) } }
                         }
                         if (changingAlbum) priorityIds.clear()
-                        else priorityIds.addAll(fresh.filter { it.id !in existing }.map { it.id })
-                        priorityIds.retainAll(fresh.map { it.id }.toSet())
+                        else priorityIds.addAll(combined.photos.filter { it.id !in existing }.map { it.id })
+                        priorityIds.retainAll(combined.photos.map { it.id }.toSet())
                         prefs.edit().putStringSet("priorityIds", priorityIds.toSet()).apply()
                         val hasAdditions = priorityIds.isNotEmpty()
                         flushQuality()
                         chooser.forgetCollagePlan()
                         albumId = targetId; title = actualTitle; sharedLink = targetShared; client = reader
-                        photos = fresh; photosByRecency = byRecency; rebuild(); planPreloads()
-                        setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${fresh.size} photos)."
-                        status.text = "$title · ${fresh.size} photos\nUpdated ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())} · checks hourly"
+                        photos = combined.photos; photosByRecency = byRecency; rebuild(); planPreloads()
+                        setupMessage = "Connected${if (targetShared.isNotBlank()) " through shared link (no account cookies)" else ""}. Displaying $title (${combined.photos.size} photos)."
+                        status.text = "$title · ${combined.photos.size} photos\nUpdated ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date())} · checks hourly"
                         if ((!displayed || changingAlbum || hasAdditions) && active && (!playbackPaused || !displayed || changingAlbum)) showNext()
                     }
                 }
@@ -988,7 +1103,7 @@ class MainActivity : Activity() {
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
-            "favoriteShare" to favoriteShare().id, "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
@@ -1025,6 +1140,7 @@ class MainActivity : Activity() {
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; favor newer: ${Recency.of(prefs.getString("recencyBias",null)).id}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
+                "Exact copies: ${duplicates.known} pictures known by md5, $duplicatesSkipped skipped because the same picture was shown in the last 30 days\n" +
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
                 "Collages since start: ${chooser.collageReport()}",
                 "Bursts: $burstEvents events of ${Bursts.MIN_EVENT}+ frames within ${Bursts.MAX_GAP_MS/60000} minutes; $burstHeld frames held back this cycle (${Bursts.KEEP} per event)",
@@ -1162,6 +1278,14 @@ class MainActivity : Activity() {
                 }
                 "favorite" -> favoriteSlide()
                 "importFavorites" -> { val added = favorites.import(fields["favoritesImport"].orEmpty()); saveFavorites(); handler.post { updateFavoriteBadge() }; "Imported $added new favorites." }
+                "favoritesAlbum" -> {
+                    val link = fields["favoritesLink"]?.trim().orEmpty()
+                    require(link.length <= 2048)
+                    if (link.isEmpty()) { disconnectFavoriteAlbum(); "Favorites album disconnected. Photos already starred stay on the list." }
+                    else if (syncingFavorites.get()) "The favorites album is already being read. Try again when it finishes."
+                    else { syncFavoriteAlbum(link); "Reading the favorites album. Its photos join the favorites when it finishes." }
+                }
+                "checkFavoritesAlbum" -> if (favoriteAlbumLink.isBlank()) "No favorites album is connected." else { syncFavoriteAlbum(); "Checking the favorites album again." }
                 "pause" -> { handler.post { setPlaybackPaused(true) }; "Slideshow paused." }
                 "resume" -> { handler.post { setPlaybackPaused(false) }; "Slideshow resumed." }
                 "next" -> { handler.post { showNext() }; "Advancing to the next photo." }
