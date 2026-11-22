@@ -28,15 +28,15 @@ class MainActivity : Activity() {
 
     /**
      * Where the dates go. On each picture they label their own caption inside the photo; under the group they
-     * form one bottom line, the way Google's frame shows a group, so a same-day group reads as a single date.
+     * form one row per distinct date, so a same-day group reads as a single date and a longer span as a list.
      */
     private fun refreshCaption(slide: FrameSlide?) {
-        val pattern = DateTimeFormatter.ofPattern("MMMM d, yyyy")
+        val pattern = FrameCaption.DATE
         val grouped = prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_UNDER_GROUP
         val line = when {
             slide == null -> ""
             slide.mode == SlideMode.SINGLE -> slide.photos.firstOrNull()?.takeIf { it.dated }?.date()?.format(pattern).orEmpty()
-            grouped -> slide.photos.filter { it.dated }.map { it.date() }.distinct().sorted().joinToString(" · ") { it.format(pattern) }
+            grouped -> FrameCaption.groupedDates(slide.photos)
             else -> ""
         }
         caption.text = line
