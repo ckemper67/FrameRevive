@@ -69,8 +69,12 @@ scoring signal lands in Phase 4. Not before.
   presentation, burst share per cycle.
 
 Progress: `PlaybackEngine.buildCycle` (the playlist, thinning, burst and priority passes of `rebuild()`) is
-extracted, and `PlaybackSimulation` runs it. `showNext`, `planPreloads` and `ensureSeasonal` are still in the
-activity. `playHistory` is already a `ConcurrentHashMap`, so that item is settled.
+extracted, and `PlaybackSimulation` runs it. `SlideChooser` now owns the queue and the presentation choice
+from `showNext()` and the collage-date planning from `planPreloads()`, behind a `SlideContext` that supplies
+cache readiness and screen geometry; `SlideChooserTest` covers it. Still in the activity: `ensureSeasonal()`,
+the Preview copy of `poolFor` (Phase 3), and delegated properties (`by chooser::playlist`) that exist only
+until the remaining readers move over. The simulation does not drive `SlideChooser` yet, so the presentation
+mix is still unmeasured. `playHistory` is already a `ConcurrentHashMap`, so that item is settled.
 
 Baseline (defaults, seed 7, album of 14,746 photos with a 40-photo seasonal pocket, playlist level only,
 no hashes or sharpness scores). Presentation mix needs the `showNext` extraction and is not measured yet:

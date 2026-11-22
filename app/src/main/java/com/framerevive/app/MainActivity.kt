@@ -67,12 +67,14 @@ class MainActivity : Activity() {
             }
         }.apply { isDaemon = true; name = "frame-watchdog"; start() }
     }
-    private val collageCadence = CollageCadence()
-    private var collageDay = emptyList<FramePhoto>()
-    private var collageTheme: CollageTheme? = null
-    private var lastCollageTheme: CollageTheme? = null
-    private var lastCollageDay: java.time.LocalDate? = null
-    private var recentIds: Set<String> = emptySet()
+    /** Owns the queue and the choice of presentation; these are views of its state while the rest moves over. */
+    private val chooser = SlideChooser()
+    private val collageCadence get() = chooser.cadence
+    private var collageDay by chooser::collageDay
+    private var collageTheme by chooser::collageTheme
+    private var lastCollageTheme by chooser::lastCollageTheme
+    private var lastCollageDay by chooser::lastCollageDay
+    private var recentIds by chooser::recentIds
     private val placeholder by lazy { android.graphics.Bitmap.createBitmap(8,8,android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF20242B.toInt()) } }
     private val placeholderPhotos = java.util.concurrent.ConcurrentHashMap<String,FramePhoto>()
     /** Consecutive download failures and the time each photo may be tried again, with jittered backoff. */
@@ -147,9 +149,9 @@ class MainActivity : Activity() {
     private lateinit var night: TextView
     private val prefs by lazy { getSharedPreferences("frame-settings", MODE_PRIVATE) }
     private var photos = emptyList<FramePhoto>()
-    private var playlist = emptyList<FramePhoto>()
+    private var playlist by chooser::playlist
     private var day = LocalDate.now()
-    private var index = 0
+    private var index by chooser::index
     private val history = PhotoHistory<FrameSlide> { it.id }
     private val DATE_ON_PICTURE = "picture"
     private val DATE_UNDER_GROUP = "group"
@@ -344,10 +346,8 @@ class MainActivity : Activity() {
         ensureSeasonal()
         similarSkipped += cycle.similarSkipped
         burstHeld = cycle.burstHeld
-        playlist = cycle.playlist
-        recentIds = photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet()
+        chooser.load(cycle.playlist, photosByRecency.take(prefs.getInt("recentCount",300)).map { it.id }.toSet())
         preloader.clear()
-        index = 0
     }
     private fun checkAlbumCount() {
         if (closed || !active || sleeping || sharedLink.isBlank() || syncing.get() || !checkingCount.compareAndSet(false, true)) return
@@ -587,19 +587,13 @@ class MainActivity : Activity() {
         if(closed || !active || sleeping || !prefs.getBoolean("preload",true)) { preloader.clear(); return }
         if(playlist.isNotEmpty() && index >= playlist.size) rebuild()
         // A pair needs two ready photos of the opposite orientation, so keep one more queued.
-        val depth=if(prefs.getBoolean("pairs",true)) 4 else 3
-        val collageSoon=prefs.getBoolean("collages",true) && collageCadence.singles >= prefs.getInt("collageEvery",20)-1
-        val count=if(collageSoon) maxOf(depth,5) else depth
-        // A same-day collage pulls photos that are not in the ordinary queue. The date has to be chosen here,
-        // while there is still time to download it: choosing it only when the collage falls due leaves nothing
-        // cached, the layout finds no usable shapes and playback silently falls back to the recent source.
-        val planned=if(collageSoon) {
-            val source=CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
-            if(source==CollageTheme.DAY && collageDay.size < collageCadence.nextCount)
-                collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,cachedIds,emptySet(),setOfNotNull(lastCollageDay))
-            collageDay+playlist.drop(index)
-        } else playlist.drop(index)
-        preloader.plan(planned.distinctBy { it.id }.take(count))
+        preloader.plan(chooser.preloadPlan(slideContext(), if(prefs.getBoolean("pairs",true)) 4 else 3))
+    }
+    private fun slideContext(): SlideContext {
+        val d=resources.displayMetrics
+        return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,::usableForCollage,hashes,d.widthPixels,d.heightPixels,
+            prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
+            prefs.getBoolean("pairs",true))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
@@ -629,56 +623,7 @@ class MainActivity : Activity() {
         history.next()?.let { showSlide(it, fromHistory = true); return }
         if (day != LocalDate.now() || index >= playlist.size) rebuild()
         if (playlist.isEmpty()) { showControls(); return }
-        val collageDue=prefs.getBoolean("collages",true) && collageCadence.due(prefs.getInt("collageEvery",20))
-        if(collageDue) {
-            val d=resources.displayMetrics
-            val avoid=lastSlide?.photos?.map { it.id }?.toSet().orEmpty()
-            val ready: (FramePhoto)->Boolean = { cached(it).exists() }
-            var theme=collageTheme ?: CollageThemeSelection.chosen(prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty())
-                .also { collageTheme=it; collageDay=emptyList() }
-            val quality: (FramePhoto)->Boolean = { usableForCollage(it) }
-            fun poolFor(source:CollageTheme):List<FramePhoto> = when(source) {
-                CollageTheme.DAY -> {
-                    if(collageDay.size < collageCadence.nextCount)
-                        collageDay=CollageThemeSelection.bestDay(photos,collageCadence.nextCount,cachedIds,avoid,setOfNotNull(lastCollageDay))
-                    collageDay
-                }
-                CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }
-            }
-            // Shape and quality selection run inside the theme; the letterboxed layout is the last resort.
-            fun collageFor(source:CollageTheme):List<FramePhoto> {
-                val pool=poolFor(source)
-                val fitting=CollageSelection.choose(collageCadence.nextCount,d.widthPixels,d.heightPixels,pool,::cachedSize,quality,avoid,hashes=hashes)
-                return if(fitting.size in 2..4) fitting
-                    else CollageCadence.candidates(pool,lastSlide?.photos.orEmpty(),collageCadence.nextCount,quality)
-            }
-            var selected=collageFor(theme)
-            if(selected.size !in 2..4) {
-                val alternative=CollageThemeSelection.other(theme)
-                collageFor(alternative).takeIf { it.size in 2..4 }?.let { selected=it; theme=alternative }
-            }
-            if(selected.size in 2..4) {
-                val ids=selected.map { it.id }.toSet()
-                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-                lastCollageTheme=theme; collageTheme=null; collageDay=emptyList()
-                if(theme==CollageTheme.DAY) lastCollageDay=selected.first().date()
-                showSlide(FrameSlide(selected,SlideMode.COLLAGE))
-                return
-            }
-        }
-        // Show Pair: two photos of the orientation opposite the frame fill the screen.
-        if(prefs.getBoolean("pairs",true)) {
-            val d=resources.displayMetrics
-            val pair=PairSelection.choose(d.widthPixels,d.heightPixels,playlist.drop(index),::cachedSize,{ cached(it).exists() },
-                lastSlide?.photos?.map { it.id }?.toSet().orEmpty())
-            if(pair.size == 2) {
-                val ids=pair.map { it.id }.toSet()
-                playlist=playlist.take(index)+playlist.drop(index).filterNot { it.id in ids }
-                showSlide(FrameSlide(pair,SlideMode.PAIR))
-                return
-            }
-        }
-        showSlide(FrameSlide(listOf(playlist[index++])))
+        chooser.next(slideContext(),lastSlide)?.let { showSlide(it) }
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
