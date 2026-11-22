@@ -113,14 +113,41 @@ days while enough other photos exist) keeps a small recent pool from repeating a
 - **We do not yet know the album.** Days with photos, photos per day, and how many photos are from the last six
   months are all unmeasured. The numbers above are assumptions. Step 0 measures them before anything changes.
 - **Cost.** Grouping 15,000 photos by day happens once when the album is read, on the worker thread like the
-  event grouping. Picking a round must stay cheap on the UI thread; the current deck build takes 50 to 130 ms
-  on the frame, and this must not exceed that by much.
+  event grouping. Picking a round must stay cheap; the deck build took 50 to 130 ms on the frame before
+  2026-11-22. Step 0b moves the build off the UI thread so that a heavier day deck does not cause a visible
+  hitch.
 
 ## Steps (each measurable, none visible until its own step)
 
 **Step 0: measure.** Diagnostics: days with photos; photos per day (median, 90th percentile, biggest day);
 photos in the last 6 months; days shown and photos shown so far. Make the simulation album realistic: photos per
 day with a long tail, a recent stretch. No behaviour change.
+
+**Step 0b: build the next round in the background.** Today `rebuild()` runs on the UI thread. It is called when
+the app starts, when a round ends, when the date changes at midnight, when settings are saved, when an album
+sync finishes, when the seasonal refresh lands, and when the queue runs dry. On the frame a round took 49 to
+133 ms before 2026-11-22 and 262 to 619 ms right after the weighted draw and the per-photo sharpness gate
+(the fix for the gate was deployed the same day; the first build after that install read 262 ms, and the
+warm number is still to be read). The frame is 40 to 100 times slower than a desktop, and the stall watchdog
+only reports stalls over 15 seconds, so a hitch of a few hundred milliseconds is invisible to it.
+
+Design: a round is already a pure function of its inputs (`PlaybackEngine.buildCycle`). Run it on the existing
+worker with a snapshot of the inputs (album, seasonal set, play history, scores, hashes, a copy of the priority
+ids, the settings) and post the result back to the UI thread. Build ahead: start the next round when the current
+one has about 10% left, hold it, and swap it in when the queue empties, so nothing waits. After a settings
+change keep playing the old queue until the new round arrives, then swap. Discard a result if the album or
+settings changed while it was being built. At swap, drop photos that were shown during the build so none
+repeats, and carry the cycle's shown set across. The first build at startup and after an album change stays
+synchronous, since the frame needs a queue at once.
+
+Decide by the warm "deck build" reading: at or under 130 ms, do this together with Step 1, since the day deck
+makes a round heavier; above 150 ms, do it first on its own. Either way, group photos by day once when the
+album is read, on the worker like the burst grouping, so each round stays light.
+
+Risks and tests: the real risks are races with the album sync and with settings saves, and a few photos
+repeating if the history changes during a build. The swap rule, the stale-result discard and the carried-over
+shown set are pure and testable without Android; the simulation is unchanged. The first reading after a fresh
+install is always the slowest (code runs uncompiled), so judge on a later build.
 
 **Step 1: day deck.** Group by day, order by depth then last shown, choose the photo within a day, with the
 airtime dial. Simulation compares today's deck and the day deck: share of slots by day size, days covered after
