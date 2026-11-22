@@ -32,9 +32,12 @@ object CollageThemeSelection {
      * photos, then the most recent one. More candidates than the collage needs are returned so the layout can
      * choose shapes that compose instead of being handed whatever four photos the date happened to have.
      * [avoidDays] keeps the same date out of two collages in a row and is dropped when no other date qualifies.
+     * With a play history in [seen], a date whose photos have not been shown beats one that has been shown, and
+     * within a date the photos shown longest ago come first, so collages walk through the album as the deck does.
      */
     fun bestDay(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
-                avoidDays: Set<LocalDate> = emptySet(), limit: Int = MAX_CANDIDATES): List<FramePhoto> {
+                avoidDays: Set<LocalDate> = emptySet(), limit: Int = MAX_CANDIDATES,
+                seen: Map<String, PlayRecord> = emptyMap()): List<FramePhoto> {
         require(count in 2..4 && limit in count..MAX_CANDIDATES)
         // A set membership test: asking the filesystem for every photo is what stalled the UI thread.
         fun ready(p: FramePhoto) = p.id in cached
@@ -42,10 +45,12 @@ object CollageThemeSelection {
         fun pick(excluded: Set<LocalDate>): List<FramePhoto>? {
             val day = candidates.groupBy { it.date() }.filter { (date, photos) -> date !in excluded && photos.size >= count }
                 .entries.sortedWith(compareByDescending<Map.Entry<LocalDate, List<FramePhoto>>> { entry -> entry.value.count { ready(it) } >= count }
+                    .thenByDescending { entry -> minOf(count, entry.value.count { it.id !in seen }) }
+                    .thenBy { entry -> entry.value.sumOf { seen[it.id]?.lastShownMs ?: 0L } / entry.value.size }
                     .thenByDescending { it.value.size }
                     .thenByDescending { it.key })
                 .firstOrNull() ?: return null
-            val (cached, uncached) = day.value.partition { ready(it) }
+            val (cached, uncached) = day.value.sortedBy { seen[it.id]?.lastShownMs ?: -1L }.partition { ready(it) }
             return (cached + uncached).take(limit)
         }
         return pick(avoidDays) ?: pick(emptySet()) ?: emptyList()

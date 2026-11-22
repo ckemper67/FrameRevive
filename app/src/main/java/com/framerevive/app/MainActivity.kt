@@ -593,7 +593,7 @@ class MainActivity : Activity() {
         val d=resources.displayMetrics
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,::usableForCollage,hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),prefs.getString("collageSource",CollageThemeSelection.SOURCE_DAY).orEmpty(),
-            prefs.getBoolean("pairs",true))
+            prefs.getBoolean("pairs",true),playHistory)
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)

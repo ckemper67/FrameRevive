@@ -66,7 +66,7 @@ class PlaybackSimulation {
 
     private class SlideReport(val slides: Int, val singles: Int, val pairs: Int, val collages: Int, val collagesDue: Int,
                               val recentFallbacks: Int, val skippedCollages: Int, val outsideQueue: Int, val repeatedSlots: Int,
-                              val coverage: Double)
+                              val coverage: Double, val collageReplays: Int)
 
     /** A mix of shapes like a phone album: mostly landscape, a third portrait, a few squares. */
     private fun shape(p: FramePhoto) = when (p.id.hashCode().mod(20)) {
@@ -83,13 +83,13 @@ class PlaybackSimulation {
         val byRecency = photos.sortedByDescending { it.takenMs }
         val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
         val allIds = photos.map { it.id }.toSet()
-        val ctx = SlideContext(photos, allIds, { true }, ::shape, { true }, emptyMap(), 1920, 1080, true, collageEvery, source, pairs)
-        val chooser = SlideChooser(random)
         val history = HashMap<String, PlayRecord>()
+        val ctx = SlideContext(photos, allIds, { true }, ::shape, { true }, emptyMap(), 1920, 1080, true, collageEvery, source, pairs, history)
+        val chooser = SlideChooser(random)
         var last: FrameSlide? = null
         var clock = 0L
         var singles = 0; var pairCount = 0; var collages = 0; var due = 0; var fallbacks = 0; var skipped = 0
-        var outside = 0; var repeated = 0
+        var outside = 0; var repeated = 0; var replays = 0
         val cycleIds = HashSet<String>(); val cyclePlays = HashMap<String, Int>()
         fun closeCycle() { repeated += cyclePlays.values.sumOf { it - 1 }; cyclePlays.clear(); cycleIds.clear() }
         repeat(slides) {
@@ -109,6 +109,7 @@ class PlaybackSimulation {
                 SlideMode.COLLAGE -> {
                     collages++
                     outside += slide.photos.count { it.id !in cycleIds }
+                    replays += slide.photos.count { it.id in history }
                     chooser.cadence.collageShown()
                 }
             }
@@ -118,7 +119,7 @@ class PlaybackSimulation {
             clock += 30_000; last = slide
         }
         closeCycle()
-        return SlideReport(slides, singles, pairCount, collages, due, chooser.themeFallbacks, skipped, outside, repeated, PhotoDeck.stats(photos, history).percentShown / 100.0)
+        return SlideReport(slides, singles, pairCount, collages, due, chooser.themeFallbacks, skipped, outside, repeated, PhotoDeck.stats(photos, history).percentShown / 100.0, replays)
     }
 
     @Test fun presentationMixReport() {
@@ -126,9 +127,10 @@ class PlaybackSimulation {
             val r = runSlides(CycleSettings(), slides = 2400, seed = 7, pairs = pairs)
             println("sim mix ($name): slides=${r.slides} singles=${r.singles} pairs=${r.pairs} collages=${r.collages} " +
                 "due=${r.collagesDue} skipped=${r.skippedCollages} recentFallback=${r.recentFallbacks} " +
-                "collagePhotosOutsideQueue=${r.outsideQueue} repeatedSlots=${r.repeatedSlots} coverage=${"%.3f".format(r.coverage)}")
+                "collagePhotosOutsideQueue=${r.outsideQueue} repeatedSlots=${r.repeatedSlots} coverage=${"%.3f".format(r.coverage)} collagePhotosAlreadyShown=${r.collageReplays}")
             assertEquals(r.slides, r.singles + r.pairs + r.collages)
             assertEquals("collages obey the same no-repeat rule as singles", 0, r.repeatedSlots)
+            assertEquals("a collage prefers photos the frame has not shown while the album has them", 0, r.collageReplays)
             assertTrue("collages fall due about every twenty slides", r.collages > 0)
             if (!pairs) assertEquals(0, r.pairs)
         }

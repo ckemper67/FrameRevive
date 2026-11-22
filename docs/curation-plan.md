@@ -152,9 +152,9 @@ the set the cycle's similarity and burst passes left out (`CycleBuild.excluded`)
 `avoid`, so a collage cannot take a photo that was already played or thinned out. The chooser also counts
 collages chosen, skipped and served by the other source. Slide level, same album and seed, pairs on: repeated
 slots 287 -> 0, coverage 17% -> 18%, 339 collage photos still come from outside the queue but are all eligible.
-Collages taking the occasional different photo is accepted (no switch to the old behaviour). Not done yet:
-photos outside the queue are not ranked by play history across cycles (a same-day group can return in the next
-cycle), merging `Bursts` and `PhotoSimilarity` into one event concept, the `recentCount` rename, and showing
+Collages taking the occasional different photo is accepted (no switch to the old behaviour). Second slice: `bestDay` reads the play history, preferring a date whose photos have not been shown (else the
+one shown longest ago) and listing unseen or oldest-shown photos first. Collage photos already shown in an
+earlier cycle: 245 of 339 -> 0 over 2,400 slides; coverage 18% -> 19%. Not done yet: merging `Bursts` and `PhotoSimilarity` into one event concept, the `recentCount` rename, and showing
 skip and fallback counts on the controls page.
 
 Done when collage photos obey the same repeat and burst limits as singles and coverage is no worse than the

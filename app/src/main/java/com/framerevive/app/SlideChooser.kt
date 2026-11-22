@@ -8,7 +8,8 @@ class SlideContext(
     val photos: List<FramePhoto>, val cachedIds: Set<String>, val isCached: (FramePhoto) -> Boolean,
     val size: (FramePhoto) -> CollageLayout.Size?, val usableForCollage: (FramePhoto) -> Boolean,
     val hashes: Map<String, Long>, val width: Int, val height: Int,
-    val collages: Boolean, val collageEvery: Int, val collageSource: String, val pairs: Boolean)
+    val collages: Boolean, val collageEvery: Int, val collageSource: String, val pairs: Boolean,
+    val seen: Map<String, PlayRecord> = emptyMap())
 
 /**
  * Owns the queue and decides the presentation of each slide: a collage when one falls due, else a pair when
@@ -63,7 +64,7 @@ class SlideChooser(private val random: Random = Random.Default) {
         val planned = if (collageSoon) {
             val source = CollageThemeSelection.chosen(ctx.collageSource, random)
             if (source == CollageTheme.DAY && collageDay.size < cadence.nextCount)
-                collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(emptySet()), setOfNotNull(lastCollageDay))
+                collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(emptySet()), setOfNotNull(lastCollageDay), seen = ctx.seen)
             collageDay + playlist.drop(index)
         } else playlist.drop(index)
         return planned.distinctBy { it.id }.take(count)
@@ -89,7 +90,7 @@ class SlideChooser(private val random: Random = Random.Default) {
         fun poolFor(source: CollageTheme): List<FramePhoto> = when (source) {
             CollageTheme.DAY -> {
                 if (collageDay.size < cadence.nextCount)
-                    collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(avoid), setOfNotNull(lastCollageDay))
+                    collageDay = CollageThemeSelection.bestDay(ctx.photos, cadence.nextCount, ctx.cachedIds, ineligible(avoid), setOfNotNull(lastCollageDay), seen = ctx.seen)
                 collageDay
             }
             CollageTheme.RECENT -> playlist.drop(index).filter { it.id in recentIds }

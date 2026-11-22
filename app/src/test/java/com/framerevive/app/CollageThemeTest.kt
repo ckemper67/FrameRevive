@@ -57,4 +57,25 @@ class CollageThemeTest {
         val many=(1..30).map { photo(it,"2017-06-10") }
         assertEquals(CollageThemeSelection.MAX_CANDIDATES,CollageThemeSelection.bestDay(many,4,many.map { it.id }.toSet()).size)
     }
+    @Test fun bestDayPrefersADateWhosePhotosHaveNotBeenShown() {
+        // The bigger date has been shown; the smaller one has not.
+        val album=(1..5).map { photo(it,"2018-08-15") }+listOf(photo(6,"2020-02-02"),photo(7,"2020-02-02"))
+        val all=album.map { it.id }.toSet()
+        val seen=(1..5).associate { it.toString() to PlayRecord(1_000L,1) }
+        assertEquals(setOf("2020-02-02"),CollageThemeSelection.bestDay(album,2,all,seen=seen).map { it.date().toString() }.toSet())
+        // With no history the bigger date wins, as before.
+        assertEquals(setOf("2018-08-15"),CollageThemeSelection.bestDay(album,2,all).map { it.date().toString() }.toSet())
+    }
+    @Test fun whenEveryDateWasShownTheOneShownLongestAgoWins() {
+        val album=listOf(photo(1,"2019-07-04"),photo(2,"2019-07-04"),photo(3,"2021-05-01"),photo(4,"2021-05-01"))
+        val all=album.map { it.id }.toSet()
+        val seen=mapOf("1" to PlayRecord(500L,1),"2" to PlayRecord(500L,1),"3" to PlayRecord(100L,1),"4" to PlayRecord(100L,1))
+        assertEquals(setOf("2021-05-01"),CollageThemeSelection.bestDay(album,2,all,seen=seen).map { it.date().toString() }.toSet())
+    }
+    @Test fun withinADateUnseenPhotosComeBeforeShownOnes() {
+        val album=(1..6).map { photo(it,"2019-07-04") }
+        val seen=mapOf("1" to PlayRecord(900L,1),"2" to PlayRecord(800L,1),"3" to PlayRecord(100L,1))
+        val members=CollageThemeSelection.bestDay(album,2,album.map { it.id }.toSet(),seen=seen)
+        assertEquals(listOf("4","5","6","3","2","1"),members.map { it.id })
+    }
 }
