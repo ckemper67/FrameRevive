@@ -236,6 +236,12 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
     /** Only the public initial page, not the complete paginated photo index. */
     fun sharedCount(link: String): Int? = sharedPage(link).first.getJSONArray(3).optInt(21, -1).takeIf { it >= 0 }
 
+    /** What opens this album's photos in Google Photos. One small request: the album's own page, not its photo list. */
+    fun shareFor(link: String): ShareLink {
+        val (_, authKey) = sharedPage(link)
+        return ShareLink("https://photos.google.com$sourcePath", authKey)
+    }
+
     /** Read the shared page and every subsequent album page without account cookies. */
     fun syncShared(link: String, progress: (Int) -> Unit): SharedAlbum {
         val (first, authKey) = sharedPage(link)

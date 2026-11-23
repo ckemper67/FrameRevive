@@ -326,6 +326,7 @@ class MainActivity : Activity() {
                 val json = JSONObject(source.readText())
                 readCatalog(json)
                 if (source == seed) { saveCatalog(json); seed.delete() }
+                resolveShares()
             }
             loadQualityScores()
             status.text = "$title · ${photos.size} photos\nNewest photos + this time in past years"
@@ -605,6 +606,21 @@ class MainActivity : Activity() {
         if (n == 0) return "No favorites yet. Star a photo from the frame's controls or the button below."
         val head = if (favorites.fromGoogle > 0) "$n favorites (${favorites.fromGoogle} from Google)." else "$n favorite${if (n == 1) "" else "s"}."
         return "$head ${FavoriteReport.sentence(n, favoriteShare().percent, PlaybackEngine.slotsPerDay(prefs.getInt("seconds",30), awakeHours()))}"
+    }
+
+    /**
+     * An album saved before its page address was kept has no Google Photos link until a full read finishes, which takes
+     * minutes on this frame. Look the address up now instead: one small request per album, on a thread of its own so it
+     * does not wait behind that read.
+     */
+    private fun resolveShares() {
+        val main = sharedLink.takeIf { it.isNotBlank() && mainShare == null }
+        val favorites = favoriteAlbumLink.takeIf { it.isNotBlank() && favoriteAlbumShare == null }
+        if (main == null && favorites == null) return
+        Thread {
+            main?.let { link -> runCatching { PrivatePhotosClient(this, anonymous = true).shareFor(link) }.getOrNull()?.let { if (sharedLink == link && mainShare == null) mainShare = it } }
+            favorites?.let { link -> runCatching { PrivatePhotosClient(this, anonymous = true).shareFor(link) }.getOrNull()?.let { if (favoriteAlbumLink == link && favoriteAlbumShare == null) favoriteAlbumShare = it } }
+        }.apply { isDaemon = true; name = "share-links"; start() }
     }
 
     /** Where on the current picture each photo opens in Google Photos, for the controls page. */
