@@ -2,6 +2,7 @@
 # Upload a build to a frame over WiFi and install it (macOS). Never prints the controls link or its key.
 #
 #   FRAME_LINK='https://framerevive-xxxx.local:8765/?key=...' ./tools/deploy-frame.sh [app.apk]
+#   ./tools/deploy-frame.sh            (asks for the link, hidden, when FRAME_LINK is not set)
 #
 # The APK defaults to the debug build. The frame's certificate must match one trusted in your keychain
 # (`security find-certificate -a -c framerevive -Z`), or the fingerprint in FRAME_FINGERPRINT (64 hex digits, colons
@@ -9,7 +10,10 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APK="${1:-$ROOT/app/build/outputs/apk/debug/app-debug.apk}"
-[ -n "${FRAME_LINK:-}" ] || { echo "Set FRAME_LINK to the frame's controls link first."; exit 1; }
+if [ -z "${FRAME_LINK:-}" ] && [ -t 0 ]; then
+  read -rsp "Paste the frame's controls link (hidden): " FRAME_LINK; echo
+fi
+[ -n "${FRAME_LINK:-}" ] || { echo "Set FRAME_LINK to the frame's controls link first (export it, or put it before the command on one line)."; exit 1; }
 [ -f "$APK" ] || { echo "No APK at $APK."; exit 1; }
 HOSTPORT=$(printf '%s' "$FRAME_LINK" | sed -E 's#^https://([^/?]+).*#\1#')
 [ "$HOSTPORT" != "$FRAME_LINK" ] || { echo "FRAME_LINK must start with https://."; exit 1; }
