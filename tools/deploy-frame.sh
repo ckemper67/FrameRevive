@@ -28,7 +28,8 @@ if ! printf '%s\n' "$TRUSTED" | grep -qx "$FRAME_FP"; then
   echo "The frame's certificate ($FRAME_FP) is not one you trust. Not sending the key."; exit 1
 fi
 echo "Certificate matches a trusted one ($FRAME_FP)."
-text() { sed 's/<[^>]*>/ /g' | tr -s ' \n' | head -c 400; echo; }
+# The frame's reply is a small HTML page: keep its first paragraph and decode the entities it escapes.
+text() { sed -e 's#</p>.*##' -e 's/<[^>]*>/ /g' -e "s/&#39;/'/g" -e 's/&quot;/"/g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g' | tr -s ' \n' | head -c 400; echo; }
 echo "Uploading $(basename "$APK")..."
 curl -sS --cacert "$PEM" -H "Content-Type: application/vnd.android.package-archive" --data-binary @"$APK" "${FRAME_LINK}&action=uploadApk" | text
 echo "Installing..."
