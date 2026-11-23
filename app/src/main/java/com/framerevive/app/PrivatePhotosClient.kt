@@ -19,7 +19,7 @@ import javax.crypto.spec.GCMParameterSpec
 // Read-only wire format adapted from xob0t/google_photos_web_client (MIT).
 // See tools/GOOGLE_PHOTOS_CLIENT_LICENSE.txt. This web API is unofficial.
 class PrivatePhotosClient(private val context: Context, private val anonymous: Boolean = false) {
-    data class SharedAlbum(val title: String, val photos: List<FramePhoto>, val itemCount: Int?)
+    data class SharedAlbum(val title: String, val photos: List<FramePhoto>, val itemCount: Int?, val share: ShareLink? = null)
     private var lastAddress = ""
     private var sourcePath = "/"
     data class Album(val id: String, val title: String, val count: Int)
@@ -261,7 +261,7 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
             current = rpc("snAcKc", JSONArray().put(albumKey).put(token).put(JSONObject.NULL).put(authKey))
         }
         check(photos.isNotEmpty()) { "Shared album returned no photos; previous index retained." }
-        return SharedAlbum(title, photos.values.toList(), album.optInt(21, -1).takeIf { it >= 0 })
+        return SharedAlbum(title, photos.values.toList(), album.optInt(21, -1).takeIf { it >= 0 }, ShareLink("https://photos.google.com$sourcePath", authKey))
     }
 
     companion object {

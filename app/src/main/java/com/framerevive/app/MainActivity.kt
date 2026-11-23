@@ -178,6 +178,11 @@ class MainActivity : Activity() {
     /** The second shared album ("Frame favorites"): its photos are favorites as they are. */
     @Volatile private var favoriteAlbum = emptyList<FramePhoto>()
     @Volatile private var favoriteAlbumLink = ""
+    /** What opens a photo of each album in Google Photos, saved with the album and read back at start. */
+    @Volatile private var mainShare: ShareLink? = null
+    @Volatile private var favoriteAlbumShare: ShareLink? = null
+    /** The pictures of the collage or pair on screen as shares of the image, for the page's click-through. */
+    @Volatile private var tileRects: List<PhotoLinks.Tile> = emptyList()
     @Volatile private var favoriteAlbumTitle = ""
     @Volatile private var favoriteAlbumNote = ""
     @Volatile private var favoritesReady = false
@@ -368,6 +373,7 @@ class MainActivity : Activity() {
         check(list.isNotEmpty()) { "Photo index is empty." }
         albumId = json.getString("albumId"); title = json.optString("title", "Your photo frame")
         sharedLink = json.optString("sharedLink")
+        mainShare = json.optString("shareBase").takeIf { it.isNotBlank() }?.let { ShareLink(it, json.optString("shareKey")) }
         if (json.optLong("syncedAt") > prefs.getLong("lastSuccessfulSync", 0))
             prefs.edit().putLong("lastSuccessfulSync", json.optLong("syncedAt")).apply()
         if (sharedLink.isNotBlank()) client = PrivatePhotosClient(this, anonymous = true)
@@ -412,6 +418,7 @@ class MainActivity : Activity() {
                 FramePhoto(p.getString("id"), p.getString("url"), p.getLong("takenMs"), p.optLong("offsetMs"))
             }
             favoriteAlbumLink = json.optString("link"); favoriteAlbumTitle = json.optString("title")
+            favoriteAlbumShare = json.optString("shareBase").takeIf { it.isNotBlank() }?.let { ShareLink(it, json.optString("shareKey")) }
         }
     }
 
@@ -424,8 +431,10 @@ class MainActivity : Activity() {
                 val rows = JSONArray()
                 shared.photos.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs)) }
                 PrivatePhotosClient.writeAtomic(favoriteAlbumFile, JSONObject().put("link", link).put("title", shared.title).put("photos", rows)
+                    .put("shareBase", shared.share?.base.orEmpty()).put("shareKey", shared.share?.key.orEmpty())
                     .put("syncedAt", System.currentTimeMillis()).toString().toByteArray(Charsets.UTF_8))
                 favoriteAlbumLink = link; favoriteAlbumTitle = shared.title; favoriteAlbum = shared.photos; favoriteAlbumNote = ""
+                favoriteAlbumShare = shared.share
                 applyCombined()
             } catch (e: Exception) {
                 favoriteAlbumNote = "Could not read the favorites album: ${safeMessage(e)} The last list stays in use."
@@ -435,7 +444,7 @@ class MainActivity : Activity() {
 
     private fun disconnectFavoriteAlbum() {
         favoriteAlbumFile.delete()
-        favoriteAlbum = emptyList(); favoriteAlbumLink = ""; favoriteAlbumTitle = ""; favoriteAlbumNote = ""
+        favoriteAlbum = emptyList(); favoriteAlbumLink = ""; favoriteAlbumTitle = ""; favoriteAlbumNote = ""; favoriteAlbumShare = null
         lastMerge = FavoriteAlbum.Merged(emptyList(), 0, 0)
         network.execute { applyCombined() }
     }
@@ -596,6 +605,14 @@ class MainActivity : Activity() {
         if (n == 0) return "No favorites yet. Star a photo from the frame's controls or the button below."
         val head = if (favorites.fromGoogle > 0) "$n favorites (${favorites.fromGoogle} from Google)." else "$n favorite${if (n == 1) "" else "s"}."
         return "$head ${FavoriteReport.sentence(n, favoriteShare().percent, PlaybackEngine.slotsPerDay(prefs.getInt("seconds",30), awakeHours()))}"
+    }
+
+    /** Where on the current picture each photo opens in Google Photos, for the controls page. */
+    private fun photoTiles(): String {
+        val slide = lastSlide ?: return ""
+        val tiles = if (slide.photos.size == 1) PhotoLinks.whole(slide.photos[0].id) else tileRects.takeIf { it.size == slide.photos.size } ?: return ""
+        val fromFavorites = favoriteAlbum.mapTo(HashSet()) { it.id }
+        return PhotoLinks.lines(tiles) { id -> PhotoLinks.url(if (id in fromFavorites) favoriteAlbumShare else mainShare, id) }
     }
 
     private fun favoriteLogSentence(): String =
@@ -951,6 +968,10 @@ class MainActivity : Activity() {
                     CollageLayout.place(d.widthPixels, d.heightPixels, slide.photos.map(::photoSize), fill = true).panels to
                         d.widthPixels / CollageLayout.outputSize(d.widthPixels, d.heightPixels).first.toFloat()
                 }.getOrNull() else null
+                val rects = if (tiles == null) emptyList() else {
+                    val (ow, oh) = CollageLayout.outputSize(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+                    PhotoLinks.tiles(tiles.first, slide.photos, ow, oh)
+                }
                 val background = FramePhotoView.background(b)
                 handler.post {
                     if (closed || !active || sleeping || ticket != generation) {
@@ -959,7 +980,7 @@ class MainActivity : Activity() {
                     setPhotoLoading(false)
                     image.setPhoto(b, background)
                     multiPreview = preview; shownAt = System.currentTimeMillis()
-                    tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f
+                    tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f; tileRects = rects
                     markDisplayed(slide,fromHistory)
                     duplicateRun = 0
                     displayed = true; failures = 0
@@ -1012,7 +1033,9 @@ class MainActivity : Activity() {
                     .map { p -> p.copy(discoveredMs = if (changingAlbum) 0 else existing[p.id]?.discoveredMs ?: discovered) }
                 val rows = JSONArray()
                 fresh.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs).put("discoveredMs",p.discoveredMs)) }
-                saveCatalog(JSONObject().put("albumId", targetId).put("title", actualTitle).put("sharedLink", targetShared).put("photos", rows).put("syncedAt", System.currentTimeMillis()))
+                saveCatalog(JSONObject().put("albumId", targetId).put("title", actualTitle).put("sharedLink", targetShared).put("photos", rows).put("syncedAt", System.currentTimeMillis())
+                    .put("shareBase", shared?.share?.base.orEmpty()).put("shareKey", shared?.share?.key.orEmpty()))
+                mainShare = shared?.share
                 prefs.edit().putLong("lastSuccessfulSync", System.currentTimeMillis()).putInt("fullAlbumCount", shared?.itemCount ?: fresh.size)
                     .remove("lastSyncError").remove("lastCountError").remove("nextSyncAttemptAt").apply()
                 syncAttempts = 0
@@ -1175,7 +1198,7 @@ class MainActivity : Activity() {
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
             "shownStamp" to shownAt.toString(), "nowShowing" to nowShowingText(),
-            "favoriteLog" to favoriteLogSentence(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "favoriteLog" to favoriteLogSentence(), "photoTiles" to photoTiles(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),

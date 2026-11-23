@@ -129,6 +129,13 @@ class FrameWebTest {
         val page=FrameWeb.render(FrameWeb.State(mapOf("favoriteLog" to "Favorites shown: 3 today <x>"),emptySet()))
         assertTrue(page.contains("id=\"favoriteLog\"")); assertTrue(page.contains("Favorites shown: 3 today &lt;x&gt;"))
     }
+    @Test fun clickingThePictureOpensTheTileUnderThePointerInGooglePhotosOnly() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("photoTiles" to "0.0,0.0,1.0,1.0,https://photos.google.com/share/a/photo/p?key=k&x=\"<b>"),emptySet()))
+        assertTrue(page.contains("data-tiles=\"0.0,0.0,1.0,1.0,https://photos.google.com/share/a/photo/p?key=k&amp;x=&quot;&lt;b&gt;\""))
+        assertTrue(page.contains("function openTile("))
+        assertTrue("only Google Photos addresses are opened",page.contains("url.startsWith('https://photos.google.com/')"))
+        assertTrue("without opener access",page.contains("window.open(url,'_blank','noopener')"))
+    }
     @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
         val hostile = "<script>x</script>\t1\tframe\t0"
         val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))

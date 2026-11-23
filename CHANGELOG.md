@@ -9,6 +9,7 @@
 
 ## 0.5.26-alpha
 
+- Click the picture on the Everyday page to open it in Google Photos; in a collage or pair, the tile you click opens its own photo. The frame saves each shared album's page address and key for this.
 - Show the picture on the frame, with its date, at the top of the Everyday page. It refreshes when the picture changes.
 - Add `tools/deploy-frame.sh`, which checks the frame's certificate against your keychain, uploads an APK and installs it without printing the controls link.
 - Add a favorites album: connect a second shared album and every photo in it becomes a favorite. A main-album photo with the same capture time (when only one has it) is hidden so nothing shows twice. Un-starring one of its photos on the frame hides it until it is starred again.
