@@ -158,6 +158,10 @@ class MainActivity : Activity() {
     @Volatile private var photoLoading = false
     private lateinit var pausedBadge: TextView
     private lateinit var favoriteBadge: TextView
+    private lateinit var favoriteStars: FavoriteStarsView
+    /** Where each picture of the collage or pair on screen sits, worked out with the render and read on the UI thread. */
+    @Volatile private var tilePanels: List<CollageLayout.Panel> = emptyList()
+    @Volatile private var tileScale = 1f
     private val settleFavoriteBadge = Runnable { updateFavoriteBadge() }
     private lateinit var pauseButton: Button
     @Volatile private var playbackPaused = false
@@ -242,6 +246,7 @@ class MainActivity : Activity() {
             favoritesReady = true
             handler.post { if (::favoriteBadge.isInitialized) updateFavoriteBadge() }
             // The catalog may have been read before the saved stars, so seed and hide un-starred ones now.
+            favoriteLog.load(favoriteLogFile)
             if (favoriteAlbum.isNotEmpty()) network.execute { applyCombined() }
             runCatching {
                 if (hashFile.exists()) hashFile.forEachLine { line ->
@@ -275,9 +280,11 @@ class MainActivity : Activity() {
         }
         root.addView(pausedBadge, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { setMargins(18,18,18,18) })
         favoriteBadge = TextView(this).apply {
-            textSize = 20f; setTextColor(0xFFFFD54F.toInt()); setShadowLayer(4f,1f,1f,Color.BLACK)
-            setPadding(18,10,18,10); visibility = View.GONE
+            textSize = 20f; setTextColor(0xFFFFD54F.toInt()); setShadowLayer(8f,2f,2f,Color.BLACK)
+            setPadding(24,12,24,12); visibility = View.GONE
         }
+        favoriteStars = FavoriteStarsView(this)
+        root.addView(favoriteStars, FrameLayout.LayoutParams(-1,-1))
         root.addView(favoriteBadge, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { setMargins(18,18,18,18) })
         applyStarMode()
         controls = LinearLayout(this).apply {
@@ -551,16 +558,37 @@ class MainActivity : Activity() {
     private fun updateFavoriteBadge() {
         if (!::favoriteBadge.isInitialized) return
         handler.removeCallbacks(settleFavoriteBadge)
-        val starred = lastSlide?.photos?.any { favorites.isFavorite(it.id) } == true
-        favoriteBadge.text = "\u2605"
+        val slide = lastSlide
+        val starred = slide?.photos?.any { favorites.isFavorite(it.id) } == true
+        updateTileStars()
+        favoriteBadge.text = starText("")
         favoriteBadge.alpha = 0.7f
-        favoriteBadge.visibility = if (starred) View.VISIBLE else View.GONE
+        // A collage or pair shows its stars on the favorite's own tile; a single photo has the corner badge.
+        favoriteBadge.visibility = if (starred && (slide?.photos?.size ?: 1) == 1) View.VISIBLE else View.GONE
+    }
+
+    /** A big star, three times the size of the note beside it, so it reads from across the room. */
+    private fun starText(message: String): CharSequence {
+        val text = android.text.SpannableString(if (message.isEmpty()) "\u2605" else "\u2605 $message")
+        text.setSpan(android.text.style.RelativeSizeSpan(3f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return text
+    }
+
+    private fun updateTileStars() {
+        if (!::favoriteStars.isInitialized) return
+        val slide = lastSlide
+        val panels = tilePanels
+        favoriteStars.show(
+            if (slide == null || slide.photos.size < 2 || panels.size != slide.photos.size) emptyList()
+            else FavoriteStars.spots(panels, slide.photos, favorites::isFavorite, tileScale,
+                min = 20f * resources.displayMetrics.scaledDensity, max = 60f * resources.displayMetrics.scaledDensity))
     }
 
     private fun showFavoriteNotice(message: String) {
         if (!::favoriteBadge.isInitialized) return
+        updateTileStars()
         handler.removeCallbacks(settleFavoriteBadge)
-        favoriteBadge.text = "\u2605 $message"; favoriteBadge.alpha = 1f; favoriteBadge.visibility = View.VISIBLE
+        favoriteBadge.text = starText(message); favoriteBadge.alpha = 1f; favoriteBadge.visibility = View.VISIBLE
         handler.postDelayed(settleFavoriteBadge, 2500)
     }
 
@@ -601,6 +629,9 @@ class MainActivity : Activity() {
         val seconds = field("Seconds per photo (10–300)", prefs.getInt("seconds", 30).toString())
         val brightness = field("Daytime brightness (5–100 percent)", prefs.getInt("brightness",55).toString())
         val enabled = CheckBox(this).apply { text = "Enable nightly sleep schedule"; isChecked = prefs.getBoolean("schedule", false) }
+    private fun favoriteLogSentence(): String =
+        favoriteLog.sentence(LocalDate.now().toEpochDay(), favorites.ids.count { (playHistory[it]?.plays ?: 0) > 0 })
+
         val crop = CheckBox(this).apply { text = "Fill screen (crop photo edges)"; isChecked = prefs.getBoolean("crop", false) }
         val blur = CheckBox(this).apply { text = "Blurred background (when not filling screen)"; isChecked = prefs.getBoolean("blurBackground", true) }
         val date = CheckBox(this).apply { text = "Show photo date"; isChecked = prefs.getBoolean("date", true) }
@@ -885,6 +916,12 @@ class MainActivity : Activity() {
         slide?.let { showSlide(it) }
     }
     private fun showPrevious() {
+            val starred = slide.photos.count { favorites.isFavorite(it.id) }
+            if (starred > 0) {
+                favoriteLog.record(LocalDate.now().toEpochDay(), starred)
+                val text = favoriteLog.export()
+                historyWriter.execute { runCatching { Favorites.write(favoriteLogFile, text) } }
+            }
         if (!active || closed || sleeping) return
         val previous = history.previous() ?: return
         handler.removeCallbacks(advance)
@@ -919,6 +956,11 @@ class MainActivity : Activity() {
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
                 val preview = if (slide.collage || slide.pair) runCatching { previewJpeg(b) }.getOrNull() else null
+                val tiles = if (slide.collage || slide.pair) runCatching {
+                    val d = resources.displayMetrics
+                    CollageLayout.place(d.widthPixels, d.heightPixels, slide.photos.map(::photoSize), fill = true).panels to
+                        d.widthPixels / CollageLayout.outputSize(d.widthPixels, d.heightPixels).first.toFloat()
+                }.getOrNull() else null
                 val background = FramePhotoView.background(b)
                 handler.post {
                     if (closed || !active || sleeping || ticket != generation) {
@@ -927,6 +969,7 @@ class MainActivity : Activity() {
                     setPhotoLoading(false)
                     image.setPhoto(b, background)
                     multiPreview = preview; shownAt = System.currentTimeMillis()
+                    tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f
                     markDisplayed(slide,fromHistory)
                     duplicateRun = 0
                     displayed = true; failures = 0
