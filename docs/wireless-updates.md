@@ -30,6 +30,9 @@ The page's own JavaScript does two POSTs; a script can do the same. Take the con
    --data-binary @app-debug.apk '<controls link>&action=uploadApk'`. The reply says "verified" or why not.
 3. Install: `curl --cacert frame.pem -X POST -d action=installApk '<controls link>'`, then read the Debug page.
 
+`tools/deploy-frame.sh` does these three steps and refuses to send anything unless the certificate matches your keychain
+(or `FRAME_FINGERPRINT`): `FRAME_LINK='<controls link>' ./tools/deploy-frame.sh [app.apk]`. It never prints the link.
+
 A sandboxed shell may fail to resolve the `.local` name (`DNSServiceGetAddrInfo failed -65563`); that is the
 sandbox blocking mDNS, not the frame. The version shown on the page comes from `FrameWeb.VERSION`, which must
 be kept in step with `versionName`.
