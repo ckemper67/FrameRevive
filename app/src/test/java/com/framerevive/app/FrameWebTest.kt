@@ -88,10 +88,10 @@ class FrameWebTest {
     }
     @Test fun theFavoriteButtonReflectsWhetherThePhotoOnScreenIsStarred() {
         val off = FrameWeb.render(FrameWeb.State(mapOf("favoriteSummary" to "No favorites yet."), emptySet()))
-        assertTrue(off.contains("Favorite this photo</button>")); assertTrue(off.contains("value=\"favorite\""))
+        assertTrue(off.contains("&#9734;</span> Favorite</button>")); assertTrue(off.contains("value=\"favorite\""))
         assertTrue(off.contains("No favorites yet."))
         val on = FrameWeb.render(FrameWeb.State(mapOf("favoriteSummary" to "3 favorites."), setOf("slideFavorite")))
-        assertTrue(on.contains("Remove from favorites</button>")); assertFalse(on.contains("Favorite this photo</button>"))
+        assertTrue(on.contains("&#9733;</span> Unfavorite</button>")); assertFalse(on.contains("&#9734;</span> Favorite</button>"))
     }
     @Test fun theEverydayPageShowsTheCurrentPictureAndItsCaptionEscaped() {
         val page=FrameWeb.render(FrameWeb.State(mapOf("shownStamp" to "1700","nowShowing" to "<b>March 4, 2021</b>"),emptySet()))
@@ -99,6 +99,14 @@ class FrameWebTest {
         assertTrue(page.contains("Now showing: &lt;b&gt;March 4, 2021&lt;/b&gt;")); assertFalse(page.contains("<b>March 4"))
         assertTrue("the image is fetched with the key from the page address",page.contains("image:'current'"))
         assertFalse(FrameWeb.render(FrameWeb.State(emptyMap(),emptySet())).contains("Now showing:"))
+    }
+    @Test fun thePictureControlsSitUnderThePictureInOneRowLikeAMediaPlayer() {
+        val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
+        val picture=page.indexOf("id=\"nowShowing\"")
+        val order=listOf("value=\"previous\"","value=\"pause\"","value=\"next\"","value=\"favorite\"").map { page.indexOf(it,picture) }
+        assertTrue(order.all { it > picture }); assertEquals(order.sorted(),order)
+        assertTrue("one form holds the row",!page.substring(order.first(),order.last()).contains("</form>"))
+        assertTrue(FrameWeb.render(FrameWeb.State(emptyMap(),setOf("paused"))).contains("value=\"resume\""))
     }
     @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
         val hostile = "<script>x</script>\t1\tframe\t0"
