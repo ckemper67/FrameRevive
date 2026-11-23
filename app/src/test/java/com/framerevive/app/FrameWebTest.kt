@@ -125,6 +125,10 @@ class FrameWebTest {
         assertTrue("its space is reserved before the picture arrives",page.contains("height:clamp(200px,42vw,420px)"))
         assertTrue("the new picture is fetched first and swapped in when ready",page.contains("URL.createObjectURL(b)"))
     }
+    @Test fun theFavoritesCardReportsWhatWasShown() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("favoriteLog" to "Favorites shown: 3 today <x>"),emptySet()))
+        assertTrue(page.contains("id=\"favoriteLog\"")); assertTrue(page.contains("Favorites shown: 3 today &lt;x&gt;"))
+    }
     @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
         val hostile = "<script>x</script>\t1\tframe\t0"
         val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))

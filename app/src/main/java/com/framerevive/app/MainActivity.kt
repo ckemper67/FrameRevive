@@ -104,6 +104,8 @@ class MainActivity : Activity() {
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
     private val favorites = Favorites()
     private val favoritesFile by lazy { File(filesDir,"favorites.tsv") }
+    private val favoriteLog = FavoriteLog()
+    private val favoriteLogFile by lazy { File(filesDir,"favorites-shown.tsv") }
     private val pendingPlays = java.util.concurrent.atomic.AtomicInteger()
     private val historyWriter = Executors.newSingleThreadExecutor()
     @Volatile private var deckMs = 0L
@@ -235,6 +237,7 @@ class MainActivity : Activity() {
         Thread {
             playHistory.putAll(PhotoDeck.load(historyFile))
             favorites.load(favoritesFile)
+            favoriteLog.load(favoriteLogFile)
             duplicates.load(md5File)
             favoritesReady = true
             handler.post { if (::favoriteBadge.isInitialized) updateFavoriteBadge() }
@@ -568,6 +571,9 @@ class MainActivity : Activity() {
         return "$head ${FavoriteReport.sentence(n, favoriteShare().percent, PlaybackEngine.slotsPerDay(prefs.getInt("seconds",30), awakeHours()))}"
     }
 
+    private fun favoriteLogSentence(): String =
+        favoriteLog.sentence(LocalDate.now().toEpochDay(), favorites.ids.count { (playHistory[it]?.plays ?: 0) > 0 })
+
     private fun saveFavorites() {
         val text = favorites.export()
         historyWriter.execute { runCatching { Favorites.write(favoritesFile, text) } }
@@ -846,6 +852,12 @@ class MainActivity : Activity() {
             collageCadence.displayed(slide.collage)
             // Record what was on the panel so the deck can prefer what has not been seen.
             chooser.claim(slide.photos.map { it.id }, playHistory, System.currentTimeMillis())
+            val starred = slide.photos.count { favorites.isFavorite(it.id) }
+            if (starred > 0) {
+                favoriteLog.record(LocalDate.now().toEpochDay(), starred)
+                val text = favoriteLog.export()
+                historyWriter.execute { runCatching { Favorites.write(favoriteLogFile, text) } }
+            }
             if(pendingPlays.addAndGet(slide.photos.size) >= 20) flushHistory()
         }
         // A single photo uses the caption; multi-photo slides label every picture inside the renderer instead,
@@ -1130,7 +1142,7 @@ class MainActivity : Activity() {
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
             "shownStamp" to shownAt.toString(), "nowShowing" to nowShowingText(),
-            "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "favoriteLog" to favoriteLogSentence(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
