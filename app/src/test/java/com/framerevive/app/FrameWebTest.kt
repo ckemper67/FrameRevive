@@ -108,6 +108,23 @@ class FrameWebTest {
         assertTrue("one form holds the row",!page.substring(order.first(),order.last()).contains("</form>"))
         assertTrue(FrameWeb.render(FrameWeb.State(emptyMap(),setOf("paused"))).contains("value=\"resume\""))
     }
+    @Test fun theFavoritesSettingOffersEveryShareAndKeepsTheChoice() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("favoriteShare" to "lots"),emptySet()))
+        for (id in FavoriteShare.entries.map { it.id }) assertTrue(id,page.contains("<option value=\"$id\""))
+        assertTrue(page.contains("<option value=\"lots\" selected"))
+    }
+    @Test fun actionMessagesFadeButWorkingMessagesStay() {
+        val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
+        assertTrue(page.contains("result.textContent='';},8000"))
+        assertTrue(page.contains("say('Sending…',true)")); assertTrue(page.contains("say('Uploading APK… Keep this page open.',true)"))
+        assertFalse("every message goes through say()",page.contains("result.textContent="+"'Request"))
+    }
+    @Test fun theCurrentPictureIsUpdatedInPlaceSoThePageDoesNotMove() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("shownStamp" to "1","nowShowing" to "x"),emptySet()))
+        assertFalse("the picture block is never replaced by a status refresh",page.contains("'preloadStatus','nowShowing'"))
+        assertTrue("its space is reserved before the picture arrives",page.contains("height:clamp(200px,42vw,420px)"))
+        assertTrue("the new picture is fetched first and swapped in when ready",page.contains("URL.createObjectURL(b)"))
+    }
     @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
         val hostile = "<script>x</script>\t1\tframe\t0"
         val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))

@@ -127,7 +127,7 @@ class FrameRemote(private val token: String, private val page: () -> String,
     }
     private fun reply(socket: Socket, code: Int, html: String) {
         val bytes = html.toByteArray(Charsets.UTF_8)
-        val header = "HTTP/1.1 $code Response\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
+        val header = "HTTP/1.1 $code Response\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
         socket.getOutputStream().apply { write(header.toByteArray()); write(bytes); flush() }
         // Send a clean response EOF even when an early rejection leaves form bytes unread.
         socket.shutdownOutput()
