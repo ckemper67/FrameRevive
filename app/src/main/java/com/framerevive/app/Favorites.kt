@@ -12,7 +12,7 @@ data class Favorite(val starredMs: Long, val origin: String = FRAME, val vetoed:
 
 /** How much of the day favorites get: a share of the slots, the same whether there are 20 favorites or 2,000. */
 enum class FavoriteShare(val id: String, val percent: Int) {
-    OFF("off", 0), SOMETIMES("some", 5), OFTEN("often", 10);
+    OFF("off", 0), SOMETIMES("some", 5), OFTEN("often", 10), LOTS("lots", 20);
     companion object {
         val DEFAULT = SOMETIMES
         fun of(id: String?): FavoriteShare = entries.firstOrNull { it.id == id } ?: DEFAULT

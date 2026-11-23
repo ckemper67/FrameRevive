@@ -122,6 +122,8 @@ class FavoriteShareTest {
         assertEquals(0, FavoriteShare.of("off").percent)
         assertEquals(5, FavoriteShare.of("some").percent)
         assertEquals(10, FavoriteShare.of("often").percent)
+        assertEquals(20, FavoriteShare.of("lots").percent)
+        assertEquals("the top choice is the most the engine plans", PlaybackEngine.MAX_FAVORITE_PERCENT, FavoriteShare.entries.maxOf { it.percent })
         assertEquals(FavoriteShare.SOMETIMES, FavoriteShare.of(null))
         assertEquals(FavoriteShare.SOMETIMES, FavoriteShare.of("junk"))
     }
