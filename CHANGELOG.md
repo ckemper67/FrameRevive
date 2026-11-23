@@ -9,6 +9,7 @@
 
 ## 0.5.26-alpha
 
+- Show the picture on the frame, with its date, at the top of the Everyday page. It refreshes when the picture changes.
 - Add `tools/deploy-frame.sh`, which checks the frame's certificate against your keychain, uploads an APK and installs it without printing the controls link.
 - Add a favorites album: connect a second shared album and every photo in it becomes a favorite. A main-album photo with the same capture time (when only one has it) is hidden so nothing shows twice. Un-starring one of its photos on the frame hides it until it is starred again.
 - Skip a single photo whose bytes (md5) match another photo shown in the last 30 days, which also catches the same picture under two ids.

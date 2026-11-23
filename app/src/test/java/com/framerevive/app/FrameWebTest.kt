@@ -93,6 +93,13 @@ class FrameWebTest {
         val on = FrameWeb.render(FrameWeb.State(mapOf("favoriteSummary" to "3 favorites."), setOf("slideFavorite")))
         assertTrue(on.contains("Remove from favorites</button>")); assertFalse(on.contains("Favorite this photo</button>"))
     }
+    @Test fun theEverydayPageShowsTheCurrentPictureAndItsCaptionEscaped() {
+        val page=FrameWeb.render(FrameWeb.State(mapOf("shownStamp" to "1700","nowShowing" to "<b>March 4, 2021</b>"),emptySet()))
+        assertTrue(page.contains("id=\"nowShowing\" data-shown=\"1700\"")); assertTrue(page.contains("<img alt=\"The photo on the frame now\""))
+        assertTrue(page.contains("Now showing: &lt;b&gt;March 4, 2021&lt;/b&gt;")); assertFalse(page.contains("<b>March 4"))
+        assertTrue("the image is fetched with the key from the page address",page.contains("image:'current'"))
+        assertFalse(FrameWeb.render(FrameWeb.State(emptyMap(),emptySet())).contains("Now showing:"))
+    }
     @Test fun theFavoritesBackupIsEscapedAndCanBeRestored() {
         val hostile = "<script>x</script>\t1\tframe\t0"
         val page = FrameWeb.render(FrameWeb.State(mapOf("favoritesBackup" to hostile), emptySet()))

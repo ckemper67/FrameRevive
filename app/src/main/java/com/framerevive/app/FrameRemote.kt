@@ -16,6 +16,7 @@ import javax.net.ssl.SSLServerSocket
 class FrameRemote(private val token: String, private val page: () -> String,
                   private val apply: (Map<String, String>) -> String, private val server: SSLServerSocket,
                   private val upload: ((java.io.InputStream, Int) -> String)? = null,
+                  private val image: () -> ByteArray? = { null },
                   private val headerTimeoutMs: Long = 5000, private val bodyTimeoutMs: Long = 120_000) : AutoCloseable {
     private val worker = Executors.newSingleThreadExecutor()
     private val requests = ThreadPoolExecutor(4, 4, 0, TimeUnit.MILLISECONDS, SynchronousQueue())
@@ -86,6 +87,11 @@ class FrameRemote(private val token: String, private val page: () -> String,
         if (headers["sec-fetch-site"] == "cross-site") { reply(socket, 403, "Open your saved management link directly."); return }
         val origin = headers["origin"]
         if (origin != null && origin != "https://${headers["host"]}") { reply(socket, 403, "Invalid request origin."); return }
+        if (request[0] == "GET" && target.substringAfter('?', "").split('&').contains("image=current")) {
+            val bytes = image()
+            if (bytes == null) reply(socket, 404, "No photo is on screen yet.") else replyJpeg(socket, bytes)
+            return
+        }
         if (request[0] == "GET") { reply(socket, 200, synchronized(callbacks) { page() }); return }
         if (request[0] != "POST") { reply(socket, 405, "Method not supported."); return }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
@@ -114,9 +120,14 @@ class FrameRemote(private val token: String, private val page: () -> String,
         reply(socket, 200, "<!doctype html><meta name='viewport' content='width=device-width'><p>${escape(result)}</p><p><a href='?key=$token'>Back to frame settings</a></p>")
         } finally { bodyTimer.cancel(false) }
     }
+    private fun replyJpeg(socket: Socket, bytes: ByteArray) {
+        val header = "HTTP/1.1 200 Response\r\nContent-Type: image/jpeg\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+        socket.getOutputStream().apply { write(header.toByteArray()); write(bytes); flush() }
+        socket.shutdownOutput()
+    }
     private fun reply(socket: Socket, code: Int, html: String) {
         val bytes = html.toByteArray(Charsets.UTF_8)
-        val header = "HTTP/1.1 $code Response\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
+        val header = "HTTP/1.1 $code Response\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n"
         socket.getOutputStream().apply { write(header.toByteArray()); write(bytes); flush() }
         // Send a clean response EOF even when an early rejection leaves form bytes unread.
         socket.shutdownOutput()

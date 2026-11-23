@@ -143,6 +143,9 @@ class MainActivity : Activity() {
     @Volatile private var qualityMedianCache: Float? = null
     @Volatile private var qualityMedianKnown = false
     private var lastSlide: FrameSlide? = null
+    /** A small picture of the collage or pair on screen (a single photo is read from the cache), and when it appeared. */
+    @Volatile private var multiPreview: ByteArray? = null
+    @Volatile private var shownAt = 0L
     private val network = Executors.newSingleThreadExecutor()
     private val syncing = AtomicBoolean(false)
     private val checkingCount = AtomicBoolean(false)
@@ -339,7 +342,7 @@ class MainActivity : Activity() {
                 textSize = 13f; setPadding(20,0,0,0); setTextColor(Color.LTGRAY)
             }, LinearLayout.LayoutParams(0,-2,1f))
             controls.addView(addressPanel)
-            remote = FrameRemote(token, { remotePage() }, { fields -> applyRemote(fields) }, tls.listen(8765), upload = { input, length -> updater.receive(input, length) })
+            remote = FrameRemote(token, { remotePage() }, { fields -> applyRemote(fields) }, tls.listen(8765), upload = { input, length -> updater.receive(input, length) }, image = { currentImage() })
         } catch (_: Exception) { status.append("\nPhone management could not start.") }
         FramePower.schedule(this)
         handler.post(refresh)
@@ -689,6 +692,27 @@ class MainActivity : Activity() {
         val bytes = synchronized(cacheLock) { runCatching { cached(p).readBytes() }.getOrNull() } ?: return null
         return PictureDuplicates.md5(bytes).also { duplicates.know(p.id, it) }
     }
+    /** What the controls page shows as the current picture: the cached photo, or the preview made for a collage or pair. */
+    private fun currentImage(): ByteArray? {
+        val slide = lastSlide ?: return null
+        if (slide.photos.size != 1) return multiPreview
+        return synchronized(cacheLock) { runCatching { cached(slide.photos[0]).readBytes() }.getOrNull() }
+    }
+    private fun previewJpeg(b: android.graphics.Bitmap): ByteArray {
+        val scale = minOf(1f, 960f / maxOf(b.width, b.height))
+        val small = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(b, (b.width * scale).toInt().coerceAtLeast(1), (b.height * scale).toInt().coerceAtLeast(1), true) else b
+        val out = java.io.ByteArrayOutputStream()
+        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        if (small !== b) small.recycle()
+        return out.toByteArray()
+    }
+    private fun nowShowingText(): String {
+        val slide = lastSlide ?: return ""
+        val dates = FrameCaption.groupedDates(slide.photos).replace("\n", ", ")
+        val kind = when { slide.collage -> "Collage"; slide.pair -> "Pair"; else -> "" }
+        val star = if (slide.photos.any { favorites.isFavorite(it.id) }) " \u2605" else ""
+        return (if (kind.isEmpty()) dates else if (dates.isEmpty()) kind else "$kind, $dates") + star
+    }
     private fun photoSize(p:FramePhoto):CollageLayout.Size = synchronized(cacheLock) {
         val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(cached(p).path,bounds)
@@ -882,6 +906,7 @@ class MainActivity : Activity() {
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
                 trimCache()
+                val preview = if (slide.collage || slide.pair) runCatching { previewJpeg(b) }.getOrNull() else null
                 val background = FramePhotoView.background(b)
                 handler.post {
                     if (closed || !active || sleeping || ticket != generation) {
@@ -889,6 +914,7 @@ class MainActivity : Activity() {
                     }
                     setPhotoLoading(false)
                     image.setPhoto(b, background)
+                    multiPreview = preview; shownAt = System.currentTimeMillis()
                     markDisplayed(slide,fromHistory)
                     duplicateRun = 0
                     displayed = true; failures = 0
@@ -1103,6 +1129,7 @@ class MainActivity : Activity() {
             "recentPercent" to prefs.getInt("recentPercent",50).toString(), "memoryPercent" to (100-prefs.getInt("recentPercent",50)).toString(),
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
+            "shownStamp" to shownAt.toString(), "nowShowing" to nowShowingText(),
             "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },

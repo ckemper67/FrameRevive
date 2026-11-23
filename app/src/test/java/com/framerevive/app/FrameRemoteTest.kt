@@ -40,6 +40,29 @@ class FrameRemoteTest {
             response.lineSequence().first().split(' ')[1].toInt() to response.substringAfter("\r\n\r\n")
         }
     }
+    @Test fun theCurrentPictureNeedsTheKeyAndSaysWhenThereIsNone() {
+        var current: ByteArray? = "JPEGBYTES".toByteArray()
+        FrameRemote("img-key",{"page"},{"saved"},ManagementTlsFixture.listener(),image={ current }).use { s ->
+            assertEquals(403,request(s,"/?image=current").first)
+            assertEquals(403,request(s,"/?key=wrong&image=current").first)
+            val ok=request(s,"/?key=img-key&image=current&shown=1")
+            assertEquals(200,ok.first); assertEquals("JPEGBYTES",ok.second)
+            assertEquals("the page itself is unchanged","page",request(s,"/?key=img-key").second)
+            current=null
+            assertEquals(404,request(s,"/?key=img-key&image=current").first)
+        }
+    }
+    @Test fun theCurrentPictureIsServedAsAnImageNotAPage() {
+        FrameRemote("img-key",{"page"},{"saved"},ManagementTlsFixture.listener(),image={ byteArrayOf(1,2,3) }).use { s ->
+            val raw=ManagementTlsFixture.connect(s.port).use { socket ->
+                socket.soTimeout=3000
+                socket.getOutputStream().apply { write("GET /?key=img-key&image=current HTTP/1.1\r\nHost: 127.0.0.1:${s.port}\r\nConnection: close\r\n\r\n".toByteArray()); flush() }
+                socket.getInputStream().readBytes()
+            }
+            val text=String(raw,Charsets.ISO_8859_1)
+            assertTrue(text.contains("Content-Type: image/jpeg")); assertTrue(text.contains("X-Content-Type-Options: nosniff"))
+        }
+    }
     @Test fun privateKeyRequiredAndCrossOriginWritesRejected() {
         val applied=AtomicReference<Map<String,String>>()
         FrameRemote("private-fixture-key",{"setup"},{fields->applied.set(fields);"saved"},ManagementTlsFixture.listener()).use { s ->
