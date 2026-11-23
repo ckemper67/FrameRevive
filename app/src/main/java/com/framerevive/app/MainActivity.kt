@@ -246,7 +246,6 @@ class MainActivity : Activity() {
             favoritesReady = true
             handler.post { if (::favoriteBadge.isInitialized) updateFavoriteBadge() }
             // The catalog may have been read before the saved stars, so seed and hide un-starred ones now.
-            favoriteLog.load(favoriteLogFile)
             if (favoriteAlbum.isNotEmpty()) network.execute { applyCombined() }
             runCatching {
                 if (hashFile.exists()) hashFile.forEachLine { line ->
@@ -581,7 +580,7 @@ class MainActivity : Activity() {
         favoriteStars.show(
             if (slide == null || slide.photos.size < 2 || panels.size != slide.photos.size) emptyList()
             else FavoriteStars.spots(panels, slide.photos, favorites::isFavorite, tileScale,
-                min = 20f * resources.displayMetrics.scaledDensity, max = 60f * resources.displayMetrics.scaledDensity))
+                min = 16f * resources.displayMetrics.scaledDensity, max = 40f * resources.displayMetrics.scaledDensity))
     }
 
     private fun showFavoriteNotice(message: String) {
@@ -629,9 +628,6 @@ class MainActivity : Activity() {
         val seconds = field("Seconds per photo (10–300)", prefs.getInt("seconds", 30).toString())
         val brightness = field("Daytime brightness (5–100 percent)", prefs.getInt("brightness",55).toString())
         val enabled = CheckBox(this).apply { text = "Enable nightly sleep schedule"; isChecked = prefs.getBoolean("schedule", false) }
-    private fun favoriteLogSentence(): String =
-        favoriteLog.sentence(LocalDate.now().toEpochDay(), favorites.ids.count { (playHistory[it]?.plays ?: 0) > 0 })
-
         val crop = CheckBox(this).apply { text = "Fill screen (crop photo edges)"; isChecked = prefs.getBoolean("crop", false) }
         val blur = CheckBox(this).apply { text = "Blurred background (when not filling screen)"; isChecked = prefs.getBoolean("blurBackground", true) }
         val date = CheckBox(this).apply { text = "Show photo date"; isChecked = prefs.getBoolean("date", true) }
@@ -916,12 +912,6 @@ class MainActivity : Activity() {
         slide?.let { showSlide(it) }
     }
     private fun showPrevious() {
-            val starred = slide.photos.count { favorites.isFavorite(it.id) }
-            if (starred > 0) {
-                favoriteLog.record(LocalDate.now().toEpochDay(), starred)
-                val text = favoriteLog.export()
-                historyWriter.execute { runCatching { Favorites.write(favoriteLogFile, text) } }
-            }
         if (!active || closed || sleeping) return
         val previous = history.previous() ?: return
         handler.removeCallbacks(advance)

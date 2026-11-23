@@ -12,7 +12,7 @@ data class StarSpot(val x: Float, val y: Float, val size: Float)
 /** Where the favorite stars of a collage or pair go: the top-right corner of each favorite's own tile, sized to the tile. */
 object FavoriteStars {
     /** A star is this share of its tile's shorter side, between the given minimum and maximum, with a quarter of its size as margin. */
-    const val SHARE = 0.18f
+    const val SHARE = 0.08f
 
     /**
      * [panels] are in the collage's output size, [scale] turns that into screen pixels, and [photos] is indexed the way

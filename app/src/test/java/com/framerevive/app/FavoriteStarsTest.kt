@@ -22,8 +22,8 @@ class FavoriteStarsTest {
     }
 
     @Test fun aSmallerTileGetsAProportionallySmallerStarWithinTheLimits() {
-        val big = FavoriteStars.spots(tile(400f), photos, { true }, 1f, 10f, 1000f).single().size
-        val small = FavoriteStars.spots(tile(100f), photos, { true }, 1f, 10f, 1000f).single().size
+        val big = FavoriteStars.spots(tile(400f), photos, { true }, 1f, 1f, 1000f).single().size
+        val small = FavoriteStars.spots(tile(100f), photos, { true }, 1f, 1f, 1000f).single().size
         assertEquals(4.0, (big / small).toDouble(), 0.001)
         assertEquals("never below the minimum", 30f, FavoriteStars.spots(tile(10f), photos, { true }, 1f, 30f, 60f).single().size)
         assertEquals("never above the maximum", 60f, FavoriteStars.spots(tile(4000f), photos, { true }, 1f, 30f, 60f).single().size)
