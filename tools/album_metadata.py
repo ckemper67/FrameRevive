@@ -185,11 +185,19 @@ def album_rpc(fetcher, global_data, source_path, auth_key, rpc_id, data):
     raise AlbumError("Google album response changed.")
 
 
-def page_times(page, found):
-    """Adds a Photo for each photo on a page to `found`, keyed by id so a repeat is counted once."""
+def page_times(page, found, urls=None, raw=None):
+    """Adds a Photo for each photo on a page to `found`, keyed by id so a repeat is counted once.
+
+    For tools that need more than the CSV holds: `urls` (a dict) receives each photo's address by id, and `raw` (a list)
+    receives every row as Google sent it. Neither is ever written to the CSV.
+    """
     for row in at(page, 1) or []:
         photo_id, url, taken = at(row, 0), at(row, 1, 0), at(row, 2)
+        if raw is not None and isinstance(row, list):
+            raw.append(row)
         if photo_id and url and taken is not None:
+            if urls is not None:
+                urls[str(photo_id)] = url
             offset = at(row, 4)
             key = at(row, 3)
             extras = at(row, 9)
@@ -220,10 +228,10 @@ def default_path(title):
     return os.path.join(LOCAL_DIR, "album-metadata-%s.csv" % slug(title))
 
 
-def fetch_photos(fetcher, link, progress=None, secrets=None, info=None):
+def fetch_photos(fetcher, link, progress=None, secrets=None, info=None, urls=None, raw=None):
     """Every photo in the shared album, as a list of Photo tuples sorted by capture time.
 
-    `info`, when given, receives the album's title as info["title"].
+    `info`, when given, receives the album's title as info["title"]. `urls` and `raw` are described at page_times.
 
     Anything that grants access to the album (the link, the address it resolves to, the access key) is added to
     `secrets`, so a caller can scrub it from messages.
@@ -244,7 +252,7 @@ def fetch_photos(fetcher, link, progress=None, secrets=None, info=None):
         raise AlbumError("Shared album page format changed (album key).")
     found, seen = {}, set()
     for _ in range(MAX_PAGES):
-        page_times(page, found)
+        page_times(page, found, urls, raw)
         if progress:
             progress(len(found))
         token = at(page, 2)

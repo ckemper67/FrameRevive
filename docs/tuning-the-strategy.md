@@ -5,6 +5,21 @@ big day holds, how much is recent. A made-up album cannot tell you that. This wo
 capture times, keeps nothing else, and runs the real selection code over them so a strategy can be judged on
 real numbers before it goes on a frame.
 
+## The tools
+
+All are read-only, standard-library Python, take the shared album links from the environment (never the command line), and
+print no links, keys or addresses. Run them from the project folder.
+
+| Tool | What it does |
+|---|---|
+| `tools/album_metadata.py` | Writes an album's per-photo metadata to a CSV in `local/` (see Privacy below). |
+| `tools/album_census.py` | Lists every field an album row carries, as shapes and counts, and which fields match across two albums. |
+| `tools/album_compare.py [--bytes N]` | Compares the main and favorites albums: twins by content key and by capture time, same sizes, and optionally whether N downloaded pairs are byte-identical. |
+| `tools/deploy-frame.sh` | Uploads and installs an APK on the frame after checking its certificate. |
+
+Set `FRAMEREVIVE_ALBUM_LINK` (and `FRAMEREVIVE_FAVORITES_LINK` for the favorites album) first. `python3 -I -m unittest discover -s tools`
+runs their tests.
+
 ## Privacy
 
 `tools/album_metadata.py` writes one line per photo: `takenMs,offsetMs,id,width,height,key,video,addedMs`. The id is the photo's media key and
