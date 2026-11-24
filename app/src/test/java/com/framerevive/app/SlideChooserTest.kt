@@ -293,9 +293,15 @@ class SlideChooserTest {
         assertTrue("L1 never went up", "L1" !in shown)
     }
 
-    @Test fun whenNothingElseIsLeftTheLonelyPhotoIsStillShownRatherThanFreezingTheFrame() {
+    @Test fun whenBarsAreNotAllowedAndNothingElseIsLeftTheFrameKeepsItsPicture() {
         val playlist = listOf(land("L1"))
-        assertEquals("L1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
+        assertEquals("nothing is shown that would leave unused space", null, chooser(playlist).next(portraitFrame(playlist), null))
+    }
+
+    @Test fun withFillOffTheLastPhotoIsShownWholeRatherThanLeavingTheFrameWithNothing() {
+        val playlist = listOf(land("L1"))
+        val ctx = SlideContext(playlist, setOf("L1"), { true }, { null }, { true }, emptyMap(), 1080, 1920, false, 5, setOf("day"), true, fill = false)
+        assertEquals("L1", chooser(playlist).next(ctx, null)!!.photos.single().id)
     }
 
     @Test fun withPairsOffALandscapePhotoIsAnOrdinarySingle() {
@@ -307,5 +313,24 @@ class SlideChooserTest {
     @Test fun aPhotoThatMatchesTheFrameIsNeverHeldBack() {
         val playlist = listOf(port("P1"), land("L1"))
         assertEquals("P1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
+    }
+
+    @Test fun aSquarePhotoDoesNotFillAPortraitFrameSoItIsPairedToo() {
+        val sq = { id: String -> sized(id, 1000, 1000) }
+        val playlist = listOf(sq("Q1")) + (1..5).map { port("P$it") } + listOf(sq("Q2"))
+        val slide = chooser(playlist).next(portraitFrame(playlist), null)!!
+        assertEquals(SlideMode.PAIR, slide.mode)
+        assertEquals(listOf("Q1", "Q2"), slide.photos.map { it.id })
+    }
+
+    @Test fun aPortraitPhotoThatFillsTheFrameIsShownAloneEvenIfItIsNotTheFramesExactShape() {
+        val playlist = listOf(sized("T1", 1600, 2000), port("P1"))   // 4:5 loses 29 percent filling a 9:16 frame
+        assertEquals("T1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
+    }
+
+    @Test fun aLandscapeAndASquareCanPairWhenTheyFitTogether() {
+        val playlist = listOf(land("L1"), sized("Q1", 1000, 1000)) + (1..4).map { port("P$it") }
+        val slide = chooser(playlist).next(portraitFrame(playlist), null)!!
+        assertEquals(SlideMode.PAIR, slide.mode)
     }
 }

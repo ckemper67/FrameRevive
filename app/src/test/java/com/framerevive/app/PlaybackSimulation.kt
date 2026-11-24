@@ -105,16 +105,20 @@ class PlaybackSimulation {
         var outside = 0; var repeated = 0; var replays = 0
         val cycleIds = HashSet<String>(); val cyclePlays = HashMap<String, Int>()
         fun closeCycle() { repeated += cyclePlays.values.sumOf { it - 1 }; cyclePlays.clear(); cycleIds.clear() }
+        fun newCycle() {
+            closeCycle()
+            val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
+                { null }, emptySet(), random)
+            chooser.load(cycle.playlist, byRecency.take(settings.roundSize).map { it.id }.toSet(), cycle.excluded)
+            cycleIds += cycle.playlist.map { it.id }
+        }
         repeat(slides) {
-            if (chooser.index >= chooser.playlist.size) {
-                closeCycle()
-                val cycle = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(),
-                    { null }, emptySet(), random)
-                chooser.load(cycle.playlist, byRecency.take(settings.roundSize).map { it.id }.toSet(), cycle.excluded)
-                cycleIds += cycle.playlist.map { it.id }
-            }
+            if (chooser.index >= chooser.playlist.size) newCycle()
             val wasDue = chooser.cadence.due(collageEvery)
-            val slide = chooser.next(ctx, last)!!
+            // When only photos that would not fill the frame are left, the frame keeps its picture and a new cycle starts.
+            var shown = chooser.next(ctx, last)
+            if (shown == null) { newCycle(); shown = chooser.next(ctx, last) }
+            val slide = shown ?: return@repeat
             if (wasDue) { due++; if (!slide.collage) skipped++ }
             when (slide.mode) {
                 SlideMode.SINGLE -> singles++

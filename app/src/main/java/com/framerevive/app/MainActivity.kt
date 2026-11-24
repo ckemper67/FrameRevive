@@ -104,6 +104,7 @@ class MainActivity : Activity() {
     private val md5File by lazy { File(filesDir,"photo-md5.txt") }
     @Volatile private var duplicatesSkipped = 0
     private var duplicateRun = 0
+    private var misfitRun = 0
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
     private val favorites = Favorites()
     private val favoritesFile by lazy { File(filesDir,"favorites.tsv") }
@@ -267,7 +268,7 @@ class MainActivity : Activity() {
         image = FramePhotoView(this).apply {
             gentleTransitions = prefs.getBoolean("gentleTransitions", true)
             blurredBackground = prefs.getBoolean("blurBackground", true)
-            scaleType = if (prefs.getBoolean("crop", false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+            fillScreen = prefs.getBoolean("crop", true)
             contentDescription = "Photo slideshow. Tap for controls."
             setOnClickListener { showControls() }
         }
@@ -482,8 +483,12 @@ class MainActivity : Activity() {
     private fun favoriteShare() = FavoriteShare.of(prefs.getString("favoriteShare", null))
     private fun cycleSettings(): CycleSettings {
         val recentPercent = prefs.getInt("recentPercent",50)
+        // With Show Pair on, the plan puts photos that would not fill the screen into pairs, side by side.
+        val pairs = prefs.getBoolean("pairs",true)
+        val screen = resources.displayMetrics
         return CycleSettings(PlaybackEngine.roundSizeFor(plannedSlots(), recentPercent), prefs.getInt("memoryDays",14), recentPercent,
-            Recency.of(prefs.getString("recencyBias",null)), favoriteShare().percent)
+            Recency.of(prefs.getString("recencyBias",null)), favoriteShare().percent,
+            frameWidth = if (pairs) screen.widthPixels else 0, frameHeight = if (pairs) screen.heightPixels else 0)
     }
 
     private fun rebuild() {
@@ -664,7 +669,7 @@ class MainActivity : Activity() {
         val seconds = field("Seconds per photo (10–300)", prefs.getInt("seconds", 30).toString())
         val brightness = field("Daytime brightness (5–100 percent)", prefs.getInt("brightness",55).toString())
         val enabled = CheckBox(this).apply { text = "Enable nightly sleep schedule"; isChecked = prefs.getBoolean("schedule", false) }
-        val crop = CheckBox(this).apply { text = "Fill screen (crop photo edges)"; isChecked = prefs.getBoolean("crop", false) }
+        val crop = CheckBox(this).apply { text = "Fill screen (crop a photo when that takes at most 30% off)"; isChecked = prefs.getBoolean("crop", true) }
         val blur = CheckBox(this).apply { text = "Blurred background (when not filling screen)"; isChecked = prefs.getBoolean("blurBackground", true) }
         val date = CheckBox(this).apply { text = "Show photo date"; isChecked = prefs.getBoolean("date", true) }
         val hand = CheckBox(this).apply { text = "Hand gestures: left for next, right for previous"; isChecked = prefs.getBoolean("gestures", true) }
@@ -686,7 +691,7 @@ class MainActivity : Activity() {
                         .putBoolean("date", date.isChecked).putBoolean("gestures",hand.isChecked).putInt("seconds", sec).putInt("brightness",light)
                         .putBoolean("pairs",pairs.isChecked).apply()
                     image.blurredBackground = blur.isChecked
-                    image.scaleType = if (crop.isChecked) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+                    image.fillScreen = crop.isChecked
                     caption.visibility = if (date.isChecked) View.VISIBLE else View.GONE
                     FramePower.schedule(this); checkSchedule(wakeFromSchedule = wasSleeping); dialog.dismiss()
                     // A new pace needs a plan of a different size.
@@ -910,7 +915,7 @@ class MainActivity : Activity() {
         val gate=sharpnessGate()
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,{ p -> p.id in cachedIds && gate(p) },hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),enabledThemes(),
-            prefs.getBoolean("pairs",true),playHistory,gate)
+            prefs.getBoolean("pairs",true),playHistory,gate,fill = prefs.getBoolean("crop",true))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)
@@ -949,7 +954,8 @@ class MainActivity : Activity() {
         if (playlist.isEmpty()) { showControls(); return }
         // A queue that held only soft photos runs dry here; build a fresh cycle once rather than show nothing.
         val slide = chooser.next(slideContext(),lastSlide) ?: run { rebuild(); chooser.next(slideContext(),lastSlide) }
-        slide?.let { showSlide(it) }
+        // Nothing can be shown right now (every photo left would not fill the frame): keep the current picture and look again.
+        if (slide == null) scheduleAdvance(30_000) else showSlide(slide)
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
@@ -981,9 +987,19 @@ class MainActivity : Activity() {
                     // Multi-photo slides cover the frame with the least cropping the photos allow.
                     FrameCollage.render(slide.photos,d.widthPixels,d.heightPixels,prefs.getBoolean("blurBackground",true),
                         prefs.getBoolean("date",true) && prefs.getString("dateStyle",DATE_ON_PICTURE) == DATE_ON_PICTURE,
-                        ::photoSize,{ p,edge -> bitmap(p,edge) },fill=true)
+                        ::photoSize,{ p,edge -> bitmap(p,edge) },fill=true,strict=prefs.getBoolean("crop",true) && prefs.getBoolean("pairs",true))
                 } else bitmap(slide.photos.first())
                 if (ticket != generation || closed || !active || sleeping) { b.recycle(); return@execute }
+                // A photo that turns out not to fill the frame (its size was not known beforehand) is not shown alone when bars
+                // are not allowed; it is passed over, and the chooser pairs it next time now that its size is known.
+                if (!fromHistory && !slide.collage && !slide.pair && prefs.getBoolean("crop",true) && prefs.getBoolean("pairs",true) && misfitRun < 8) {
+                    val d = resources.displayMetrics
+                    if (!FrameFill.fills(b.width, b.height, d.widthPixels, d.heightPixels)) {
+                        b.recycle(); misfitRun++
+                        handler.post { if (!closed && active && ticket == generation) { setPhotoLoading(false); showNext() } }
+                        return@execute
+                    }
+                }
                 trimCache()
                 val preview = if (slide.collage || slide.pair) runCatching { previewJpeg(b) }.getOrNull() else null
                 val tiles = if (slide.collage || slide.pair) runCatching {
@@ -1005,7 +1021,7 @@ class MainActivity : Activity() {
                     multiPreview = preview; shownAt = System.currentTimeMillis()
                     tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f; tileRects = rects
                     markDisplayed(slide,fromHistory)
-                    duplicateRun = 0
+                    duplicateRun = 0; misfitRun = 0
                     displayed = true; failures = 0
                     planPreloads()
                     if (android.os.SystemClock.uptimeMillis() >= controlsUntil) controls.visibility = View.GONE
@@ -1209,7 +1225,7 @@ class MainActivity : Activity() {
         if (albumSwitching || syncing.get() || preloadEntries.any { it.status == PhotoPreloader.Status.QUEUED || it.status == PhotoPreloader.Status.LOADING }) flags += "busy"
         for (theme in CollageThemes.all) if (theme.id in enabledThemes()) flags += "collageTheme_${theme.id}"
         for (name in listOf("schedule", "crop", "date", "gestures", "blurBackground", "gentleTransitions")) {
-            if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions")) flags += name
+            if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions" || name == "crop")) flags += name
         }
         if (FramePower.hasScreenControl(this)) flags += "hardwareSleep"
         if (updater.isDeviceOwner()) flags += "deviceOwner"
@@ -1357,7 +1373,7 @@ class MainActivity : Activity() {
                             updateHoliday()
                             image.gentleTransitions = prefs.getBoolean("gentleTransitions",true)
                             image.blurredBackground = prefs.getBoolean("blurBackground",true)
-                            image.scaleType = if (prefs.getBoolean("crop",false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+                            image.fillScreen = prefs.getBoolean("crop",true)
                             refreshCaption(lastSlide)
                             caption.visibility = if (lastSlide?.collage != true && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
                             if(changingMix || plannedSlots() != plannedBefore) { generation++; setPhotoLoading(false); chooser.forgetCollagePlan(); rebuild(); planPreloads(); scheduleAdvance(prefs.getInt("seconds",30)*1000L) }

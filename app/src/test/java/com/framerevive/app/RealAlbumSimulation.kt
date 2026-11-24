@@ -149,12 +149,12 @@ class RealAlbumSimulation {
         val photos = AlbumFixture.load()
         assumeTrue("no album metadata file with sizes; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null && photos.any { it.sized })
         photos!!
-        val today = LocalDate.now(); val settings = AlbumFixture.cycleSettings()
+        val frameW = 1200; val frameH = 1920
+        val today = LocalDate.now(); val settings = AlbumFixture.cycleSettings().copy(frameWidth = frameW, frameHeight = frameH)
         val byRecency = photos.sortedByDescending { it.takenMs }
         val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
         val all = photos.map { it.id }.toSet(); val byId = photos.associateBy { it.id }
         val history = HashMap<String, PlayRecord>(); val random = Random(5)
-        val frameW = 1200; val frameH = 1920
         var planned = 0; var slides = 0; var pairs = 0; var wrongAlone = 0; var rightAlone = 0; var shownLandscape = 0; var inPairs = 0
         var plannedLandscape = 0; var clock = 0L
         for (plan in 1..8) {

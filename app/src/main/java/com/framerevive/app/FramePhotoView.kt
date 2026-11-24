@@ -13,6 +13,10 @@ import androidx.appcompat.widget.AppCompatImageView
 class FramePhotoView(context: Context) : AppCompatImageView(context) {
     var blurredBackground = true
         set(value) { field = value; invalidate() }
+    /** The "Fill the screen" setting: a photo is cropped to fill the frame when that takes little off it (see [FrameFill]). */
+    var fillScreen = true
+    private var cropped = false
+    private var previousCropped = false
     var gentleTransitions = true
         set(value) { field=value;if(!value) finishTransition() }
     private var photo: Bitmap? = null
@@ -27,7 +31,12 @@ class FramePhotoView(context: Context) : AppCompatImageView(context) {
     fun setPhoto(photo: Bitmap, background: Bitmap) {
         finishTransition()
         val oldPhoto=this.photo;val oldBackground=backdrop
+        previousCropped=cropped
         this.photo=photo;backdrop=background
+        val w = if (width > 0) width else resources.displayMetrics.widthPixels
+        val h = if (height > 0) height else resources.displayMetrics.heightPixels
+        cropped = fillScreen && FrameFill.fills(photo.width, photo.height, w, h)
+        scaleType = if (cropped) ScaleType.CENTER_CROP else ScaleType.FIT_CENTER
         setImageBitmap(photo)
         if(gentleTransitions && oldPhoto != null && isShown) {
             previousPhoto=oldPhoto;previousBackdrop=oldBackground;progress=0f
@@ -55,9 +64,9 @@ class FramePhotoView(context: Context) : AppCompatImageView(context) {
 
     override fun onDetachedFromWindow() { finishTransition();super.onDetachedFromWindow() }
 
-    private fun drawBackdrop(canvas:Canvas,background:Bitmap?) {
+    private fun drawBackdrop(canvas:Canvas,background:Bitmap?,crop:Boolean) {
         canvas.drawColor(Color.BLACK)
-        background?.takeIf { blurredBackground && scaleType != ScaleType.CENTER_CROP }?.let { b ->
+        background?.takeIf { blurredBackground && !crop }?.let { b ->
             val scale = maxOf(width.toFloat() / b.width, height.toFloat() / b.height)
             val w = b.width * scale; val h = b.height * scale
             canvas.drawBitmap(b, null, RectF((width-w)/2, (height-h)/2, (width+w)/2, (height+h)/2), backdropPaint)
@@ -68,14 +77,14 @@ class FramePhotoView(context: Context) : AppCompatImageView(context) {
     override fun onDraw(canvas: Canvas) {
         val old=previousPhoto
         if(old != null && progress<1f) {
-            drawBackdrop(canvas,previousBackdrop)
-            val scale=if(scaleType==ScaleType.CENTER_CROP) maxOf(width.toFloat()/old.width,height.toFloat()/old.height)
+            drawBackdrop(canvas,previousBackdrop,previousCropped)
+            val scale=if(previousCropped) maxOf(width.toFloat()/old.width,height.toFloat()/old.height)
                 else minOf(width.toFloat()/old.width,height.toFloat()/old.height)
             val w=old.width*scale;val h=old.height*scale
             canvas.drawBitmap(old,null,RectF((width-w)/2,(height-h)/2,(width+w)/2,(height+h)/2),backdropPaint)
             val layer=canvas.saveLayerAlpha(0f,0f,width.toFloat(),height.toFloat(),(progress*255).toInt())
-            drawBackdrop(canvas,backdrop);super.onDraw(canvas);canvas.restoreToCount(layer)
-        } else { drawBackdrop(canvas,backdrop);super.onDraw(canvas) }
+            drawBackdrop(canvas,backdrop,cropped);super.onDraw(canvas);canvas.restoreToCount(layer)
+        } else { drawBackdrop(canvas,backdrop,cropped);super.onDraw(canvas) }
     }
 
     companion object {

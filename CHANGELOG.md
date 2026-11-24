@@ -9,6 +9,8 @@
 
 ## 0.5.26-alpha
 
+- Fill the screen is on by default and crops a photo only when that takes at most 30% off it. With it and Show pairs on, no space is ever left unused: the plan puts photos that would not fill the frame (landscape or square on a portrait frame) into pairs side by side, borrowing a partner from the album when a photo has none, and collages no longer fall back to a letterboxed layout. If nothing can be shown that fills the frame, the frame keeps its current picture.
+- Add `tools/album_census.py` and `tools/album_compare.py`, which list the fields of an album's rows and compare the main album with the favorites album, and make `tools/album_metadata.py` save each photo's size, content key, video flag and added time.
 - Click the picture on the Everyday page to open it in Google Photos; in a collage or pair, the tile you click opens its own photo. The frame saves each shared album's page address and key for this.
 - Show the picture on the frame, with its date, at the top of the Everyday page. It refreshes when the picture changes.
 - Add `tools/deploy-frame.sh`, which checks the frame's certificate against your keychain, uploads an APK and installs it without printing the controls link.

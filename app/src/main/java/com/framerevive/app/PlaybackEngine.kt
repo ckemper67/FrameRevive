@@ -6,7 +6,9 @@ import kotlin.random.Random
 /** The settings that shape one cycle of the playlist. [roundSize] is internal, not a setting a person chooses. */
 data class CycleSettings(val roundSize: Int = PlaybackEngine.ROUND_SIZE, val memoryDays: Int = 14, val recentPercent: Int = 50, val recency: Recency = Recency.DEFAULT,
                          /** Percent of the plan given to favorites, whatever their number; see [Favorites]. */
-                         val favoritePercent: Int = 0)
+                         val favoritePercent: Int = 0,
+                         /** The screen's size when Show Pair is on, so the plan can put photos that would not fill it into pairs; 0 leaves the plan as chosen. */
+                         val frameWidth: Int = 0, val frameHeight: Int = 0)
 
 /** One built cycle, with what each stage held back so the controls page and the simulation can report it. */
 data class CycleBuild(val playlist: List<FramePhoto>, val similarSkipped: Int, val burstHeld: Int, val deckNanos: Long,
@@ -105,6 +107,13 @@ object PlaybackEngine {
         val deckNanos = System.nanoTime() - started
         val bursts = Bursts.thin(normal, seen, hashes = hashes, sharpness = quality, pinned = taken)
         val excluded = normal.map { it.id }.toHashSet().apply { removeAll(bursts.kept.map { it.id }.toSet()) }
-        return CycleBuild(PhotoSelection.prioritize(bursts.kept, photos, priorityIds), bursts.similar, bursts.heldBack, deckNanos, excluded)
+        val ordered = PhotoSelection.prioritize(bursts.kept, photos, priorityIds)
+        val arranged = PairPlan.arrange(ordered, settings.frameWidth, settings.frameHeight, {
+            val inPlan = ordered.mapTo(HashSet()) { it.id }
+            // Partners to borrow: photos not in the plan that are due soonest, never shown first, and not known to be soft.
+            photos.asSequence().filter { it.sized && it.id !in inPlan && PairSelection.misfit(settings.frameWidth, settings.frameHeight, CollageLayout.Size(it.width, it.height)) && keep(it) }
+                .sortedBy { seen[it.id]?.lastShownMs ?: 0L }.take(PairPlan.POOL).toList()
+        })
+        return CycleBuild(arranged, bursts.similar, bursts.heldBack, deckNanos, excluded)
     }
 }

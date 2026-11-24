@@ -11,7 +11,11 @@ class SlideContext(
     val collages: Boolean, val collageEvery: Int, val themes: Set<String>, val pairs: Boolean,
     val seen: Map<String, PlayRecord> = emptyMap(),
     /** Whether a photo is sharp enough to show; unscored photos pass. Called per photo, so it must not read preferences or files. */
-    val sharp: (FramePhoto) -> Boolean = { true }) {
+    val sharp: (FramePhoto) -> Boolean = { true },
+    /** The Fill the screen setting. With it and [pairs] on, unused space is never shown: nothing is letterboxed. */
+    val fill: Boolean = true) {
+    /** Whether bars may not appear at all, so a photo that would not fill the frame is paired or tiled, or not shown. */
+    val strict: Boolean get() = fill && pairs
     /** A photo's size: the album's own, or the downloaded file's when the album did not say. */
     fun dims(p: FramePhoto): CollageLayout.Size? = if (p.sized) CollageLayout.Size(p.width, p.height) else size(p)
 }
@@ -104,6 +108,8 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     private fun fit(ctx: SlideContext, pool: List<FramePhoto>, count: Int, avoid: Set<String>, last: FrameSlide?): List<FramePhoto> {
         val fitting = CollageSelection.choose(count, ctx.width, ctx.height, pool, ctx.size, ctx.usableForCollage, avoid, hashes = ctx.hashes)
         if (fitting.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) return fitting
+        // With the screen to be filled there is no letterboxed fallback: when nothing tiles, the collage is skipped.
+        if (ctx.strict) return emptyList()
         for (n in count downTo CollageCadence.MIN_PHOTOS) {
             val whole = CollageCadence.candidates(pool, last?.photos.orEmpty(), n, ctx.usableForCollage)
             if (whole.isNotEmpty()) return whole
@@ -217,7 +223,7 @@ class SlideChooser(@Suppress("UNUSED_PARAMETER") random: Random = Random.Default
     /** Photos shown since this cycle began, and photos its thinning passes left out. A collage may take neither. */
     private val played = HashSet<String>()
     private var excluded: Set<String> = emptySet()
-    /** How often each wrong-orientation photo was sent back this cycle for want of a partner. */
+    /** How often each photo that does not fill the frame was sent back this cycle for want of a partner. */
     private val deferrals = HashMap<String, Int>()
 
     override val head: FramePhoto? get() = playlist.getOrNull(index)
@@ -259,18 +265,16 @@ class SlideChooser(@Suppress("UNUSED_PARAMETER") random: Random = Random.Default
     /** The photos to have ready, nearest first. */
     fun preloadPlan(ctx: SlideContext, depth: Int): List<FramePhoto> {
         val base = collage.preload(ctx, this, depth)
+        // A photo coming up that will not fill the frame needs its partner downloaded in time, however far ahead the partner is.
         if (!ctx.pairs) return base
-        // A wrong-orientation photo coming up needs its partner downloaded in time, however far ahead the partner is.
-        val frame = PairSelection.orientation(ctx.width, ctx.height)
         val ahead = upcoming
-        val partners = ahead.take(2).filter { PairSelection.wrongOrientation(frame, ctx.dims(it)) }
+        val partners = ahead.take(2).filter { PairSelection.misfit(ctx.width, ctx.height, ctx.dims(it)) }
             .mapNotNull { PairSelection.partnerFor(ctx.width, ctx.height, it, ahead, ctx::dims) }
         return (base + partners).distinctBy { it.id }
     }
 
-    /** Whether [photo] would go up alone the wrong way round for the frame, which Show Pair exists to prevent. */
-    private fun lonelyMisfit(ctx: SlideContext, photo: FramePhoto) =
-        ctx.pairs && PairSelection.wrongOrientation(PairSelection.orientation(ctx.width, ctx.height), ctx.dims(photo))
+    /** Whether [photo] would go up alone without filling the frame, which Show Pair exists to prevent. */
+    private fun lonelyMisfit(ctx: SlideContext, photo: FramePhoto) = ctx.pairs && PairSelection.misfit(ctx.width, ctx.height, ctx.dims(photo))
 
     fun previewCollage(ctx: SlideContext, count: Int): CollagePreview = collage.preview(ctx, this, count)
     fun previewPool(ctx: SlideContext, count: Int): List<FramePhoto> = collage.previewPool(ctx, this, count)
@@ -289,11 +293,12 @@ class SlideChooser(@Suppress("UNUSED_PARAMETER") random: Random = Random.Default
             for (presentation in presentations) {
                 if (!presentation.due(ctx, cadence)) continue
                 val photos = presentation.propose(ctx, this, avoid, last) ?: continue
-                // A photo the wrong way round never goes up alone while pairs are on: it waits for a partner a few slots
-                // later, and after a few waits it is left out of this cycle. If every photo left is in that case, it is shown rather
-                // than leaving the frame with nothing.
-                if (presentation.mode == SlideMode.SINGLE && passes < MAX_PASSES && lonelyMisfit(ctx, photos[0]) &&
-                    upcoming.any { it.id != photos[0].id && !lonelyMisfit(ctx, it) }) {
+                // A photo that would not fill the frame never goes up alone while pairs are on: it waits for a partner a few slots
+                // later, and after a few waits it is left out of this cycle. With the screen to be filled, nothing else is
+                // shown instead, so the frame keeps its current picture; otherwise, if every photo left is in that case, one is
+                // shown whole rather than leaving the frame with nothing.
+                if (presentation.mode == SlideMode.SINGLE && lonelyMisfit(ctx, photos[0]) &&
+                    (ctx.strict || (passes < MAX_PASSES && upcoming.any { it.id != photos[0].id && !lonelyMisfit(ctx, it) }))) {
                     val photo = photos[0]
                     val waits = (deferrals[photo.id] ?: 0) + 1
                     deferrals[photo.id] = waits
@@ -305,6 +310,7 @@ class SlideChooser(@Suppress("UNUSED_PARAMETER") random: Random = Random.Default
             }
             if (!sentBack) return null
             passes++
+            if (ctx.strict && passes >= MAX_PASSES) return null
             while (true) { val first = head ?: break; if (ctx.sharp(first)) break; advance() }
             if (head == null) return null
         }

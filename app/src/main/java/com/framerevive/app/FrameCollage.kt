@@ -10,7 +10,7 @@ object FrameCollage {
     /** One image decoded at a time on the image worker; output capped at 1920 pixels.
      *  When [fill] is set the photos cover their cells, cropped by at most [CollageLayout.MAX_CROP];
      *  arrangements that cannot cover the frame fall back to the letterboxed layout. */
-    fun render(photos: List<FramePhoto>,width: Int,height: Int,blur: Boolean,date: Boolean,size: (FramePhoto)->CollageLayout.Size,load: (FramePhoto,Int)->Bitmap,fill: Boolean=false): Bitmap {
+    fun render(photos: List<FramePhoto>,width: Int,height: Int,blur: Boolean,date: Boolean,size: (FramePhoto)->CollageLayout.Size,load: (FramePhoto,Int)->Bitmap,fill: Boolean=false,strict: Boolean=false): Bitmap {
         require(photos.size in 2..4)
         val scale=minOf(1f,1920f/maxOf(width,height))
         val w=maxOf(32,(width*scale).toInt());val h=maxOf(32,(height*scale).toInt())
@@ -27,6 +27,10 @@ object FrameCollage {
             val placement=CollageLayout.place(width,height,sizes,fill)
             val panels=placement.panels
             val cover=placement.covers
+            // With the screen to be filled, photos that cannot cover the frame are not drawn at all.
+            check(cover || !strict) { "These photos do not cover the frame." }
+            // Unused space is never shown: photos that cannot cover the frame are not drawn at all.
+            check(cover) { "These photos do not cover the frame." }
             for(panel in panels) {
                 val i=panel.photo;val cell=panel.box
                 val bitmap=load(photos[i],CollageLayout.neededEdge(cell,sizes[i],cover))
