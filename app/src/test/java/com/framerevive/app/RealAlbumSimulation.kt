@@ -140,6 +140,48 @@ class RealAlbumSimulation {
             100 * sizes[4] / made, 100 * sizes[3] / made, 100 * sizes[2] / made, spans.sorted()[spans.size / 2], 100.0 * twins / made, chooseNanos / 1e6 / draws)
     }
 
+    /**
+     * Plays real plans on a portrait frame with Show Pair on, using the album's own sizes, and reports what happened to the
+     * landscape photos: shown in a pair, shown alone (only as a last resort), or left out of the cycle for want of a partner.
+     * Every photo counts as downloaded, so this is the most the rule can do; the frame's downloads can only lower it.
+     */
+    @Test fun orientationReport() {
+        val photos = AlbumFixture.load()
+        assumeTrue("no album metadata file with sizes; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null && photos.any { it.sized })
+        photos!!
+        val today = LocalDate.now(); val settings = AlbumFixture.cycleSettings()
+        val byRecency = photos.sortedByDescending { it.takenMs }
+        val seasonal = PhotoSelection.seasonal(photos, today, settings.memoryDays)
+        val all = photos.map { it.id }.toSet(); val byId = photos.associateBy { it.id }
+        val history = HashMap<String, PlayRecord>(); val random = Random(5)
+        val frameW = 1200; val frameH = 1920
+        var planned = 0; var slides = 0; var pairs = 0; var wrongAlone = 0; var rightAlone = 0; var shownLandscape = 0; var inPairs = 0
+        var plannedLandscape = 0; var clock = 0L
+        for (plan in 1..8) {
+            val round = PlaybackEngine.buildCycle(photos, today, settings, history, byRecency, seasonal, emptyMap(), { null }, emptySet(), random).playlist
+            planned += round.size; plannedLandscape += round.count { it.landscape }
+            val chooser = SlideChooser(Random(plan)).apply { load(round, emptySet()) }
+            var last: FrameSlide? = null
+            while (true) {
+                val ctx = SlideContext(photos, all, { true }, { null }, { true }, emptyMap(), frameW, frameH, false, 20, setOf("day"), true, history)
+                val slide = chooser.next(ctx, last) ?: break
+                slides++; last = slide
+                if (slide.mode == SlideMode.PAIR) { pairs++; inPairs += slide.photos.size } else {
+                    val p = slide.photos.single()
+                    if (p.landscape) wrongAlone++ else rightAlone++
+                }
+                shownLandscape += slide.photos.count { byId.getValue(it.id).landscape }
+                chooser.claim(slide.photos.map { it.id }, history, clock); clock += 30_000
+            }
+        }
+        val shown = rightAlone + wrongAlone + inPairs
+        println(("orientation on a %dx%d portrait frame, pairs on, 8 plans: %d photos planned (%.0f%% landscape), %d shown in %d slides; " +
+            "pairs %d (%d photos), portrait singles %d, landscape shown alone %d, landscape photos planned but left out %d (%.1f%% of the landscape planned)").format(
+            frameW, frameH, planned, 100.0 * plannedLandscape / planned, shown, slides, pairs, inPairs, rightAlone, wrongAlone,
+            plannedLandscape - shownLandscape, 100.0 * (plannedLandscape - shownLandscape) / plannedLandscape.coerceAtLeast(1)))
+        assertEquals("every photo was either shown or left out", planned, shown + (planned - shown))
+    }
+
     @Test fun collageThemeReport() {
         val photos = AlbumFixture.load()
         assumeTrue("no album dates file; run tools/album_metadata.py (see docs/tuning-the-strategy.md)", photos != null)

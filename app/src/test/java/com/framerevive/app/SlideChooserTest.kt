@@ -252,4 +252,60 @@ class SlideChooserTest {
         chooser.claim(slide.photos.map { it.id }, history, 1L)
         assertTrue("s0" !in history)
     }
+
+    // ---- Show Pair on a portrait frame: a landscape photo never goes up alone ----
+
+    private fun sized(id: String, w: Int, h: Int) = FramePhoto(id, "u", 20_000L * day, width = w, height = h)
+    private fun land(id: String) = sized(id, 1200, 800)
+    private fun port(id: String) = sized(id, 800, 1200)
+
+    /** A 1080 by 1920 portrait frame with pairs on and every photo downloaded, sizes from the album. */
+    private fun portraitFrame(photos: List<FramePhoto>, cached: Set<String> = photos.map { it.id }.toSet()) =
+        SlideContext(photos, cached, { it.id in cached }, { null }, { true }, emptyMap(), 1080, 1920, false, 5, setOf("day"), true)
+
+    @Test fun aLandscapePhotoWithoutAPartnerWaitsInsteadOfGoingUpAlone() {
+        val playlist = listOf(land("L1"), port("P1"), port("P2"), port("P3"))
+        val chooser = chooser(playlist)
+        val slide = chooser.next(portraitFrame(playlist), null)!!
+        assertEquals(SlideMode.SINGLE, slide.mode)
+        assertEquals("the portrait photo is shown and the landscape one is sent back", "P1", slide.photos.single().id)
+        assertTrue("L1 is still in the cycle, later", chooser.playlist.drop(chooser.index).any { it.id == "L1" })
+    }
+
+    @Test fun twoLandscapePhotosPairEvenWhenThePartnerIsFarAhead() {
+        val playlist = listOf(land("L1")) + (1..20).map { port("P$it") } + listOf(land("L2"))
+        val slide = chooser(playlist).next(portraitFrame(playlist), null)!!
+        assertEquals(SlideMode.PAIR, slide.mode)
+        assertEquals(listOf("L1", "L2"), slide.photos.map { it.id })
+    }
+
+    @Test fun thePartnerIsDownloadedAheadOfTime() {
+        val playlist = listOf(land("L1")) + (1..20).map { port("P$it") } + listOf(land("L2"))
+        val plan = chooser(playlist).preloadPlan(portraitFrame(playlist, cached = emptySet()), 4).map { it.id }
+        assertTrue("L1 first, and L2 although it is 21 places away: $plan", plan.first() == "L1" && "L2" in plan)
+    }
+
+    @Test fun aPhotoWithNoPartnerAnywhereIsLeftOutAfterAFewWaitsAndNeverShownAlone() {
+        val playlist = listOf(land("L1")) + (1..30).map { port("P$it") }
+        val chooser = chooser(playlist)
+        val ctx = portraitFrame(playlist)
+        val shown = (1..30).map { chooser.next(ctx, null)!!.photos.single().id }
+        assertTrue("L1 never went up", "L1" !in shown)
+    }
+
+    @Test fun whenNothingElseIsLeftTheLonelyPhotoIsStillShownRatherThanFreezingTheFrame() {
+        val playlist = listOf(land("L1"))
+        assertEquals("L1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
+    }
+
+    @Test fun withPairsOffALandscapePhotoIsAnOrdinarySingle() {
+        val playlist = listOf(land("L1"), port("P1"))
+        val ctx = SlideContext(playlist, playlist.map { it.id }.toSet(), { true }, { null }, { true }, emptyMap(), 1080, 1920, false, 5, setOf("day"), false)
+        assertEquals("L1", chooser(playlist).next(ctx, null)!!.photos.single().id)
+    }
+
+    @Test fun aPhotoThatMatchesTheFrameIsNeverHeldBack() {
+        val playlist = listOf(port("P1"), land("L1"))
+        assertEquals("P1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
+    }
 }

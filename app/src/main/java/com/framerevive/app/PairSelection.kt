@@ -9,13 +9,34 @@ enum class FrameOrientation { PORTRAIT, LANDSCAPE }
  */
 object PairSelection {
     const val MAX_CROP = CollageLayout.MAX_CROP
-    const val LOOKAHEAD = 8
+    /** How far ahead a partner is looked for. Albums are mostly one orientation, so the other kind can be far apart. */
+    const val LOOKAHEAD = 30
 
     fun orientation(width: Int, height: Int): FrameOrientation =
         if (height > width) FrameOrientation.PORTRAIT else FrameOrientation.LANDSCAPE
 
     fun pairable(frame: FrameOrientation, size: CollageLayout.Size): Boolean =
         if (frame == FrameOrientation.PORTRAIT) size.width > size.height else size.height > size.width
+
+    /** Whether a photo of [size] is the wrong way round for the frame, which is what a pair exists for. */
+    fun wrongOrientation(frame: FrameOrientation, size: CollageLayout.Size?): Boolean = size != null && pairable(frame, size)
+
+    /**
+     * The first of [candidates] that pairs with [leader] within the crop limit and is [ready], judged by the sizes alone
+     * so a partner can be chosen, and downloaded, before it is needed.
+     */
+    fun partnerFor(width: Int, height: Int, leader: FramePhoto, candidates: List<FramePhoto>, size: (FramePhoto) -> CollageLayout.Size?,
+                   avoid: Set<String> = emptySet(), maxCrop: Float = MAX_CROP, lookahead: Int = LOOKAHEAD,
+                   ready: (FramePhoto) -> Boolean = { true }): FramePhoto? {
+        val frame = orientation(width, height)
+        val leaderSize = size(leader)?.takeIf { pairable(frame, it) } ?: return null
+        for (partner in candidates.asSequence().filter { it.id != leader.id && it.id !in avoid }.take(lookahead)) {
+            if (!ready(partner)) continue
+            val partnerSize = size(partner)?.takeIf { pairable(frame, it) } ?: continue
+            if (CollageLayout.pair(width, height, leaderSize, partnerSize, frame == FrameOrientation.PORTRAIT).crop <= maxCrop) return partner
+        }
+        return null
+    }
 
     /**
      * Returns the leading upcoming photo with the first ready partner that fills the frame within the
