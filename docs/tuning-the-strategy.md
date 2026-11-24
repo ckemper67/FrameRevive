@@ -7,8 +7,8 @@ real numbers before it goes on a frame.
 
 ## Privacy
 
-`tools/album_metadata.py` writes one line per photo: `takenMs,offsetMs,id`. The id is the photo's media key (it names a photo but
-grants no access); there are no addresses, no images and no album title. The default output,
+`tools/album_metadata.py` writes one line per photo: `takenMs,offsetMs,id,width,height,key,video,addedMs`. The id is the photo's media key and
+`key` is Google's content key (the same for the same original in any album); neither grants access. There are no addresses, no images and no album title. The default output,
 `local/album-metadata-<album title>.csv` (the title comes from the album page), is in a folder git ignores. An existing file is never replaced unless you pass `--overwrite`. Capture dates still say
 something about a life (when you travel, when a child was born), so treat the file as private: do not commit it
 or attach it to an issue. If you want to share what you found, paste the summary the script prints, which holds

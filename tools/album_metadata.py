@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-r"""Read the ids and capture times of a shared Google Photos album and keep nothing else.
+r"""Read the metadata of a shared Google Photos album (ids, capture times, sizes, content keys) and keep nothing else.
 
 Why: the frame's photo-selection strategy depends on how an album's photos fall on days (how many days, how
-many photos on a big day, how much is recent). This writes only `takenMs,offsetMs,id` per photo, with no
-addresses and no images. The id is the photo's media key: it names a photo but grants no access to the album, and
-the file stays in a folder git ignores. The ids also let two albums be compared (does a photo keep its id in a
+many photos on a big day, how much is recent). This writes only `takenMs,offsetMs,id,width,height,key,video,addedMs` per photo,
+with no addresses and no images. The id is the photo's media key and `key` is Google's content key (the same for the same
+original file in any album); neither grants access to the album, and the file stays in a folder git ignores. The ids also let two albums be compared (does a photo keep its id in a
 second album?, see docs/favorites-plan.md). The file drives the playback simulation (see docs/tuning-the-strategy.md).
 
 Usage (the link grants access to the album, so it is read from the environment, never from the command line
@@ -32,7 +32,11 @@ import urllib.parse
 import urllib.request
 
 LINK_ENV = "FRAMEREVIVE_ALBUM_LINK"
-CSV_HEADER = "takenMs,offsetMs,id"
+CSV_HEADER = "takenMs,offsetMs,id,width,height,key,video,addedMs"
+OLD_HEADERS = ("takenMs,offsetMs", "takenMs,offsetMs,id")
+VIDEO_FIELD = "76647426"   # the extra entry in row[9] that only videos carry
+
+Photo = collections.namedtuple("Photo", "taken offset id width height key video added", defaults=("", 0, 0, "", False, 0))
 DAY_MS = 86_400_000
 HOUR_MS = 3_600_000
 MAX_PAGES = 2000           # about 100 photos a page; a guard against a pagination loop
@@ -182,12 +186,17 @@ def album_rpc(fetcher, global_data, source_path, auth_key, rpc_id, data):
 
 
 def page_times(page, found):
-    """Adds (takenMs, offsetMs, id) for each photo on a page to `found`, keyed by id so a repeat is counted once."""
+    """Adds a Photo for each photo on a page to `found`, keyed by id so a repeat is counted once."""
     for row in at(page, 1) or []:
         photo_id, url, taken = at(row, 0), at(row, 1, 0), at(row, 2)
         if photo_id and url and taken is not None:
             offset = at(row, 4)
-            found[str(photo_id)] = (int(taken), int(offset) if offset is not None else 0, str(photo_id))
+            key = at(row, 3)
+            extras = at(row, 9)
+            found[str(photo_id)] = Photo(
+                int(taken), int(offset) if offset is not None else 0, str(photo_id),
+                int(at(row, 1, 1) or 0), int(at(row, 1, 2) or 0), key if isinstance(key, str) else "",
+                isinstance(extras, dict) and VIDEO_FIELD in extras, int(at(row, 5) or 0))
 
 
 def secrets_from(address):
@@ -212,7 +221,7 @@ def default_path(title):
 
 
 def fetch_photos(fetcher, link, progress=None, secrets=None, info=None):
-    """Every photo in the shared album, as a list of (takenMs, offsetMs, id).
+    """Every photo in the shared album, as a list of Photo tuples sorted by capture time.
 
     `info`, when given, receives the album's title as info["title"].
 
@@ -261,22 +270,26 @@ def write_csv(path, photos):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", newline="") as out:
         out.write(CSV_HEADER + "\n")
-        for taken, offset, photo_id in photos:
-            out.write("%d,%d,%s\n" % (taken, offset, photo_id))
+        for item in photos:
+            p = Photo(*item)
+            out.write("%d,%d,%s,%d,%d,%s,%d,%d\n" % (p.taken, p.offset, p.id, p.width, p.height, p.key, 1 if p.video else 0, p.added))
 
 
 def read_csv(path):
-    """(takenMs, offsetMs, id) per photo; an older file without the id column gives an empty id."""
+    """A Photo per line. Older files, with fewer columns, give the missing fields their empty values."""
     photos = []
     with open(path) as source:
         header = source.readline().strip()
-        if header not in (CSV_HEADER, "takenMs,offsetMs"):
+        if header != CSV_HEADER and header not in OLD_HEADERS:
             raise AlbumError("That file is not an album metadata file (expected the header %s)." % CSV_HEADER)
         for line in source:
             line = line.strip()
-            if line:
-                taken, offset, *rest = line.split(",")
-                photos.append((int(taken), int(offset), rest[0] if rest else ""))
+            if not line:
+                continue
+            f = line.split(",")
+            photos.append(Photo(int(f[0]), int(f[1]), f[2] if len(f) > 2 else "", int(f[3]) if len(f) > 3 else 0,
+                                int(f[4]) if len(f) > 4 else 0, f[5] if len(f) > 5 else "", len(f) > 6 and f[6] == "1",
+                                int(f[7]) if len(f) > 7 else 0))
     return photos
 
 
@@ -418,7 +431,7 @@ def main(argv=None, fetcher=None, today=None, stdout=None, stderr=None):
                 raise AlbumError("%s already exists; pass --overwrite to replace it, or --out to write somewhere else." % out)
             write_csv(out, photos)
             print("Wrote %d photos to %s (ids and capture times only: no addresses)." % (len(photos), out), file=stdout)
-        print(format_summary(summarize([(taken, offset) for taken, offset, _ in photos], today)), file=stdout)
+        print(format_summary(summarize([(p.taken, p.offset) for p in photos], today)), file=stdout)
         return 0
     except AlbumError as error:
         print("Error: " + scrub(str(error), secrets), file=stderr)

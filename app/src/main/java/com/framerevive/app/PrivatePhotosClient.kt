@@ -181,6 +181,21 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
         return result.values.toList()
     }
 
+    /**
+     * One album row as a photo: [0] id, [1] the picture's address then its width and height, [2] capture time, [3] Google's
+     * content key, [4] time zone offset, [5] when it was added, and a video entry among the extras in [9].
+     */
+    private fun photoFromRow(row: JSONArray): FramePhoto? {
+        val id = if (row.isNull(0)) "" else row.optString(0)
+        val box = row.optJSONArray(1)
+        val url = if (box == null || box.isNull(0)) "" else box.optString(0)
+        if (id.isBlank() || url.isBlank() || row.isNull(2)) return null
+        val key = if (row.isNull(3)) "" else (row.opt(3) as? String).orEmpty()
+        return FramePhoto(id, url, row.getLong(2), if (row.isNull(4)) 0 else row.optLong(4),
+            width = box?.optInt(1) ?: 0, height = box?.optInt(2) ?: 0, key = key,
+            video = row.optJSONObject(9)?.has(VIDEO_FIELD) == true, addedMs = if (row.isNull(5)) 0 else row.optLong(5))
+    }
+
     fun sync(albumId: String, progress: (Int) -> Unit): List<FramePhoto> {
         connect()
         var token: String? = null
@@ -192,10 +207,7 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
             val rows = page.optJSONArray(1) ?: JSONArray()
             for (i in 0 until rows.length()) {
                 val row = rows.optJSONArray(i) ?: continue
-                val id = row.optString(0)
-                val url = row.optJSONArray(1)?.optString(0) ?: ""
-                if (id.isNotEmpty() && url.isNotEmpty() && !row.isNull(2))
-                    photos[id] = FramePhoto(id, url, row.getLong(2), if (row.isNull(4)) 0 else row.optLong(4))
+                photoFromRow(row)?.let { photos[it.id] = it }
             }
             progress(photos.size)
             token = if (page.isNull(2)) null else page.optString(2).takeIf { it.isNotEmpty() }
@@ -256,9 +268,7 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
             val rows = current.optJSONArray(1) ?: JSONArray()
             for (i in 0 until rows.length()) {
                 val row = rows.optJSONArray(i) ?: continue
-                val id = row.optString(0); val url = row.optJSONArray(1)?.optString(0).orEmpty()
-                if (id.isNotBlank() && url.isNotBlank() && !row.isNull(2))
-                    photos[id] = FramePhoto(id, url, row.getLong(2), if (row.isNull(4)) 0 else row.optLong(4))
+                photoFromRow(row)?.let { photos[it.id] = it }
             }
             progress(photos.size)
             val token = if (current.isNull(2)) null else current.optString(2).takeIf { it.isNotEmpty() }
@@ -271,6 +281,8 @@ class PrivatePhotosClient(private val context: Context, private val anonymous: B
     }
 
     companion object {
+        /** The key under which an album row carries a video's details. */
+        private const val VIDEO_FIELD = "76647426"
         fun writeAtomic(file: File, bytes: ByteArray) {
             val atomic = AtomicFile(file)
             val stream = atomic.startWrite()

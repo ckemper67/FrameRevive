@@ -41,6 +41,30 @@ class FavoriteAlbumTest {
         assertEquals(1, merged.hidden)
     }
 
+    private fun keyed(id: String, taken: Long, key: String) = FramePhoto(id, "u-$id", taken, key = key)
+
+    @Test fun aContentKeyFindsTheTwinEvenInABurstAndEvenWhenTheTimesDiffer() {
+        val burst = listOf(keyed("b1", 3000, "K1"), keyed("b2", 3000, "K2"), keyed("b3", 3000, "K3"), keyed("edited", 9000, "K4"))
+        val merged = FavoriteAlbum.merge(burst, listOf(keyed("f1", 3000, "K2"), keyed("f2", 5000, "K4")), emptySet())
+        assertEquals("exactly the frame with the same key goes, not its neighbours", listOf("b1", "b3", "f1", "f2"), merged.photos.map { it.id })
+        assertEquals(2, merged.hidden)
+    }
+
+    @Test fun aSameTimeWithADifferentKeyIsADifferentPicture() {
+        val merged = FavoriteAlbum.merge(listOf(keyed("m", 2000, "K1")), listOf(keyed("f", 2000, "K9")), emptySet())
+        assertEquals(listOf("m", "f"), merged.photos.map { it.id }); assertEquals(0, merged.hidden)
+    }
+
+    @Test fun aFavoriteWithoutAKeyStillUsesTheCaptureTime() {
+        val merged = FavoriteAlbum.merge(listOf(keyed("m", 2000, "K1"), keyed("n", 4000, "")), listOf(keyed("f", 2000, ""), keyed("g", 4000, "")), emptySet())
+        assertEquals(listOf("f", "g"), merged.photos.map { it.id })
+    }
+
+    @Test fun anUnstarredFavoriteHidesNoTwinByKeyEither() {
+        val merged = FavoriteAlbum.merge(listOf(keyed("m", 2000, "K1")), listOf(keyed("f", 2000, "K1")), setOf("f"))
+        assertEquals(listOf("m"), merged.photos.map { it.id })
+    }
+
     @Test fun theSameAlbumConnectedTwiceAddsNoCopies() {
         val merged = FavoriteAlbum.merge(main, listOf(photo("m1", 1000)), emptySet())
         assertSame(main, merged.photos)

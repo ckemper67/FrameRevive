@@ -7,7 +7,15 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.random.Random
 
-data class FramePhoto(val id: String, val url: String, val takenMs: Long, val offsetMs: Long = 0, val discoveredMs: Long = 0) {
+/**
+ * One album entry. [width] and [height] are the original's pixels (0 when the album did not say), so orientation is known
+ * without a download. [key] is Google's content key: two entries with the same key are the same original file, even in
+ * two different albums. [video] marks an entry that is a video. [addedMs] is when Google says the entry was added (0 if unknown).
+ */
+data class FramePhoto(val id: String, val url: String, val takenMs: Long, val offsetMs: Long = 0, val discoveredMs: Long = 0,
+                      val width: Int = 0, val height: Int = 0, val key: String = "", val video: Boolean = false, val addedMs: Long = 0) {
+    val sized: Boolean get() = width > 0 && height > 0
+    val landscape: Boolean get() = sized && width > height
     fun date(): LocalDate = Instant.ofEpochMilli(takenMs + offsetMs).atZone(ZoneOffset.UTC).toLocalDate()
     /** Album entries do not always carry a capture timestamp; a zero would render as January 1970. */
     val dated: Boolean get() = takenMs > 0

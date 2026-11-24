@@ -98,6 +98,9 @@ class MainActivity : Activity() {
     private val hashFile by lazy { File(filesDir,"photo-hashes.txt") }
     /** The md5 of every photo fetched, so a picture that is in both albums is not shown twice in a row. */
     private val duplicates = PictureDuplicates()
+    /** Downloaded photos checked against the album's stated size, and how many disagreed about landscape or portrait. */
+    private val sizeChecked = java.util.concurrent.atomic.AtomicInteger()
+    private val sizeDisagreed = java.util.concurrent.atomic.AtomicInteger()
     private val md5File by lazy { File(filesDir,"photo-md5.txt") }
     @Volatile private var duplicatesSkipped = 0
     private var duplicateRun = 0
@@ -369,7 +372,7 @@ class MainActivity : Activity() {
         val rows = json.getJSONArray("photos")
         val list = (0 until rows.length()).map { i ->
             val p = rows.getJSONObject(i)
-            FramePhoto(p.getString("id"), p.getString("url"), p.getLong("takenMs"), p.optLong("offsetMs"), p.optLong("discoveredMs"))
+            PhotoJson.read(p)
         }
         check(list.isNotEmpty()) { "Photo index is empty." }
         albumId = json.getString("albumId"); title = json.optString("title", "Your photo frame")
@@ -416,7 +419,7 @@ class MainActivity : Activity() {
             val rows = json.getJSONArray("photos")
             favoriteAlbum = (0 until rows.length()).map { i ->
                 val p = rows.getJSONObject(i)
-                FramePhoto(p.getString("id"), p.getString("url"), p.getLong("takenMs"), p.optLong("offsetMs"))
+                PhotoJson.read(p)
             }
             favoriteAlbumLink = json.optString("link"); favoriteAlbumTitle = json.optString("title")
             favoriteAlbumShare = json.optString("shareBase").takeIf { it.isNotBlank() }?.let { ShareLink(it, json.optString("shareKey")) }
@@ -430,7 +433,7 @@ class MainActivity : Activity() {
             try {
                 val shared = PrivatePhotosClient(this, anonymous = true).syncShared(link) { }
                 val rows = JSONArray()
-                shared.photos.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs)) }
+                shared.photos.forEach { p -> rows.put(PhotoJson.write(p)) }
                 PrivatePhotosClient.writeAtomic(favoriteAlbumFile, JSONObject().put("link", link).put("title", shared.title).put("photos", rows)
                     .put("shareBase", shared.share?.base.orEmpty()).put("shareKey", shared.share?.key.orEmpty())
                     .put("syncedAt", System.currentTimeMillis()).toString().toByteArray(Charsets.UTF_8))
@@ -736,6 +739,10 @@ class MainActivity : Activity() {
             val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }
             BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
             check(bounds.outWidth > 0 && bounds.outHeight > 0) { "Image could not be decoded." }
+            if (p.sized && bounds.outWidth != bounds.outHeight && p.width != p.height) {
+                sizeChecked.incrementAndGet()
+                if ((p.width > p.height) != (bounds.outWidth > bounds.outHeight)) sizeDisagreed.incrementAndGet()
+            }
             if(!current()) return
             synchronized(cacheLock) { if(current() && !file.exists()) PrivatePhotosClient.writeAtomic(file,bytes) }
             duplicates.know(p.id, PictureDuplicates.md5(bytes))
@@ -1048,7 +1055,7 @@ class MainActivity : Activity() {
                 val byRecency = combined.byRecency
                     .map { p -> p.copy(discoveredMs = if (changingAlbum) 0 else existing[p.id]?.discoveredMs ?: discovered) }
                 val rows = JSONArray()
-                fresh.forEach { p -> rows.put(JSONObject().put("id", p.id).put("url", p.url).put("takenMs", p.takenMs).put("offsetMs", p.offsetMs).put("discoveredMs",p.discoveredMs)) }
+                fresh.forEach { p -> rows.put(PhotoJson.write(p, withDiscovered = true)) }
                 saveCatalog(JSONObject().put("albumId", targetId).put("title", actualTitle).put("sharedLink", targetShared).put("photos", rows).put("syncedAt", System.currentTimeMillis())
                     .put("shareBase", shared?.share?.base.orEmpty()).put("shareKey", shared?.share?.key.orEmpty()))
                 mainShare = shared?.share
@@ -1251,6 +1258,7 @@ class MainActivity : Activity() {
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; favor newer: ${Recency.of(prefs.getString("recencyBias",null)).id}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Deck: ${PhotoDeck.stats(photos,playHistory).let { "${it.shown}/${it.total} shown (${it.percentShown}%), ${it.unseen} never shown" }}; deck build ${deckMs} ms",
+                "Album sizes: ${photos.count { it.sized }} of ${photos.size} photos have one; ${sizeDisagreed.get()} of ${sizeChecked.get()} downloaded since start disagree about landscape or portrait; ${photos.count { it.video }} videos; ${photos.count { it.key.isNotEmpty() }} with a content key\n" +
                 "Exact copies: ${duplicates.known} pictures known by md5, $duplicatesSkipped skipped because the same picture was shown in the last 30 days\n" +
                 "Near-identical frames: ${hashes.size} photos hashed, $similarSkipped left out as repeats (threshold ${PhotoSimilarity.THRESHOLD}/64 bits within an event, exact repeats across events)",
                 "Collages since start: ${chooser.collageReport()}",

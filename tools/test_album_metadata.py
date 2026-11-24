@@ -19,8 +19,9 @@ GLOBAL = {"FdrFJe": "sid-1", "cfb2h": "boq_build", "SNlM0e": "at-token", "Im6cmf
 DAY = 86_400_000
 
 
-def row(photo_id, taken, offset=None, url=True):
-    return [photo_id, ["https://lh3.example/" + photo_id, 100, 100] if url else None, taken, None, offset]
+def row(photo_id, taken, offset=None, url=True, key=None, video=False, added=None, size=(100, 100)):
+    extras = {"76647426": [1000]} if video else {"15": 1}
+    return [photo_id, ["https://lh3.example/" + photo_id, size[0], size[1]] if url else None, taken, key, offset, added, None, None, None, extras]
 
 
 def page(rows, token=None, album_key="album-key-1", title="My trip"):
@@ -73,15 +74,23 @@ class ReadingTests(unittest.TestCase):
         third = page([row("d", 13 * DAY, None)])
         fetcher = FakeFetcher(first, [second, third])
         photos = ad.fetch_photos(fetcher, LINK)
-        self.assertEqual(photos, [(10 * DAY, 3600_000, "a"), (11 * DAY, 0, "b"), (12 * DAY, 0, "c"), (13 * DAY, 0, "d")])
+        self.assertEqual([p[:3] for p in photos], [(10 * DAY, 3600_000, "a"), (11 * DAY, 0, "b"), (12 * DAY, 0, "c"), (13 * DAY, 0, "d")])
         batch = [r for r in fetcher.requests if "batchexecute" in r[0]]
         self.assertEqual(len(batch), 2)
         self.assertIn("rpcids=snAcKc", batch[0][0])
         self.assertIn("at=at-token", batch[0][1])
 
+    def test_sizes_content_keys_video_flags_and_added_times_are_kept(self):
+        first = page([row("a", 10 * DAY, key="KeyA=", added=777, size=(4000, 3000)), row("v", 11 * DAY, video=True, size=(1920, 1080)),
+                      row("n", 12 * DAY)])
+        a, v, n = ad.fetch_photos(FakeFetcher(first), LINK)
+        self.assertEqual((a.width, a.height, a.key, a.video, a.added), (4000, 3000, "KeyA=", False, 777))
+        self.assertEqual((v.width, v.height, v.key, v.video), (1920, 1080, "", True))
+        self.assertEqual((n.key, n.video, n.added), ("", False, 0))
+
     def test_a_photo_seen_twice_counts_once_and_unusable_rows_are_skipped(self):
         first = page([row("a", 5 * DAY), row("a", 5 * DAY), row("nodate", None), row("nourl", 6 * DAY, url=False)])
-        self.assertEqual(ad.fetch_photos(FakeFetcher(first), LINK), [(5 * DAY, 0, "a")])
+        self.assertEqual([p[:3] for p in ad.fetch_photos(FakeFetcher(first), LINK)], [(5 * DAY, 0, "a")])
 
     def test_the_next_page_request_uses_the_album_key_token_and_access_key(self):
         fetcher = FakeFetcher(page([row("a", DAY)], token="tok/1+2"), [page([row("b", 2 * DAY)])])
@@ -223,11 +232,11 @@ class FileAndPrivacyTests(unittest.TestCase):
     def test_the_csv_holds_ids_and_times_only_and_is_readable_back(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "sub", "dates.csv")
-            ad.write_csv(path, [(1000, 0, "idA"), (2000, 3600, "idB")])
+            ad.write_csv(path, [ad.Photo(1000, 0, "idA", 4000, 3000, "K1=", False, 55), ad.Photo(2000, 3600, "idB", 0, 0, "", True, 0)])
             with open(path) as written:
                 text = written.read()
-            self.assertEqual(text, "takenMs,offsetMs,id\n1000,0,idA\n2000,3600,idB\n")
-            self.assertEqual(ad.read_csv(path), [(1000, 0, "idA"), (2000, 3600, "idB")])
+            self.assertEqual(text, "takenMs,offsetMs,id,width,height,key,video,addedMs\n1000,0,idA,4000,3000,K1=,0,55\n2000,3600,idB,0,0,,1,0\n")
+            self.assertEqual(ad.read_csv(path), [ad.Photo(1000, 0, "idA", 4000, 3000, "K1=", False, 55), ad.Photo(2000, 3600, "idB", 0, 0, "", True, 0)])
             self.assertEqual(os.stat(path).st_mode & 0o077, 0, "only the owner may read it")
 
     def test_the_file_is_named_after_the_album_and_never_replaced_silently(self):
@@ -252,7 +261,7 @@ class FileAndPrivacyTests(unittest.TestCase):
             path = os.path.join(directory, "old.csv")
             with open(path, "w") as old:
                 old.write("takenMs,offsetMs\n1000,0\n")
-            self.assertEqual(ad.read_csv(path), [(1000, 0, "")])
+            self.assertEqual(ad.read_csv(path), [ad.Photo(1000, 0, "", 0, 0, "", False, 0)])
 
     def test_a_file_that_is_not_an_album_metadata_file_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -286,7 +295,7 @@ class FileAndPrivacyTests(unittest.TestCase):
             self.assertEqual(code, 0)
             with open(path) as written:
                 file_text = written.read()
-            self.assertIn(",photoid-1\n", file_text)
+            self.assertIn(",photoid-1,100,100,,0,0\n", file_text)
             shown = out + err + file_text
             for secret in ("SecretShortLink123", "SecretAccessKey99", "AF1QipSecretAlbumId", "lh3.example", "My trip"):
                 self.assertNotIn(secret, shown)
