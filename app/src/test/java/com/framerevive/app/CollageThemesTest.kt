@@ -21,9 +21,9 @@ class CollageThemesTest {
 
     private fun context(photos: List<FramePhoto>, themes: Set<String>, cached: Set<String> = photos.map { it.id }.toSet(),
                         seen: Map<String, PlayRecord> = emptyMap(), size: (FramePhoto) -> CollageLayout.Size = { landscape },
-                        pairs: Boolean = false, today: java.time.LocalDate = java.time.LocalDate.of(2026, 6, 15), memoryDays: Int = 7) =
+                        pairs: Boolean = false, today: java.time.LocalDate = java.time.LocalDate.of(2026, 6, 15), memoryDays: Int = 7, index: DayIndex? = null) =
         SlideContext(photos, cached, { it.id in cached }, size, { true }, emptyMap(), 1920, 1080, true, 5, themes, pairs, seen,
-            today = today, memoryDays = memoryDays)
+            today = today, memoryDays = memoryDays, dayIndexOverride = index)
 
     private fun onDate(id: String, date: java.time.LocalDate, minuteOfDay: Int = 600) = FramePhoto(id, "u$id", date.toEpochDay() * dayMs + minuteOfDay * minute)
     private fun dayOf(prefix: String, date: java.time.LocalDate, count: Int, step: Int = 12) = (0 until count).map { onDate("$prefix$it", date, 540 + it * step) }
@@ -282,6 +282,29 @@ class CollageThemesTest {
     @Test fun theAnniversaryThemeIsOneOfTheThemesThatTakeTurns() {
         assertTrue(CollageThemes.all.any { it.id == "anniversary" })
         assertEquals("On this day", CollageThemes.ANNIVERSARY.label)
+    }
+
+    @Test fun planningTheNextCollageOverAWholeAlbumIsFastEnoughForTheFramesMainThread() {
+        // The plan is made on the main thread, once per collage, over every photo: 15,000 over 20 years, mixed shapes.
+        // Most of the time is the theme scanning and grouping the whole album by day (the planner adds 1 to 2 ms). The frame
+        // is 40 to 100 times slower than the machine running the tests, so the budget is tight.
+        val today = java.time.LocalDate.of(2026, 11, 27)
+        val album = (0 until 15_000).map { i -> onDate("z$i", today.minusDays(((i * 37L) % 7000) + 1), (i % 11) * 20) }
+        val shapesById = album.associate { it.id to (if (it.id.drop(1).toInt() % 5 < 2) portrait else landscape) }
+        val prebuilt = DayIndex(album)   // on the frame this is built on a worker when the catalog changes, not while planning
+        for (theme in listOf("day", "outing", "anniversary")) {
+            val best = (1..4).minOf {
+                val chooser = chooser(album.take(50))
+                chooser.showSingles(5)
+                val ctx = context(album, setOf(theme), size = { shapesById.getValue(it.id) }, pairs = true, today = today, memoryDays = 14, index = prebuilt)
+                val start = System.nanoTime()
+                val plan = chooser.preloadPlan(ctx, 4)
+                assertTrue("a plan for $theme", plan.isNotEmpty())
+                (System.nanoTime() - start) / 1_000_000.0
+            }
+            println("plan for theme $theme over 15,000 photos: best of 4 %.1f ms".format(best))
+            assertTrue("planning for $theme took $best ms", best < 15.0)
+        }
     }
 
     @Test fun aSingleEnabledThemeIsUsedEveryTime() {

@@ -68,7 +68,7 @@ object CollageThemes {
         override val id = "day"
         override val label = "A day"
         override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
-            val day = CollageThemeSelection.rankedDays(ctx.photos, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
+            val day = CollageThemeSelection.rankedDays(ctx.dayIndex.days, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
                 minCount = CollageCadence.MIN_PHOTOS).firstOrNull() ?: return emptyList()
             return TimeSpread.separated(ordered(day.photos, ctx.seen, CollageThemeSelection.MAX_CANDIDATES * 3), CollageCadence.MIN_PHOTOS)
                 .take(CollageThemeSelection.MAX_CANDIDATES)
@@ -83,7 +83,7 @@ object CollageThemes {
         override val id = "outing"
         override val label = "One outing"
         override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
-            val days = CollageThemeSelection.rankedDays(ctx.photos, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
+            val days = CollageThemeSelection.rankedDays(ctx.dayIndex.days, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
                 minCount = CollageCadence.MIN_PHOTOS)
             // The first outing with enough photos for [count] wins; failing that, the richest one found.
             var richest: List<FramePhoto> = emptyList(); var richestApart = 0
@@ -119,7 +119,7 @@ object CollageThemes {
         override val id = "anniversary"
         override val label = "On this day"
         override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
-            val memories = CollageThemeSelection.onThisDay(ctx.photos, ctx.today, ctx.memoryDays)
+            val memories = ctx.dayIndex.onThisDay(ctx.today, ctx.memoryDays)
             val day = CollageThemeSelection.rankedDays(memories, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
                 minCount = CollageCadence.MIN_PHOTOS).firstOrNull() ?: return emptyList()
             return TimeSpread.separated(ordered(day.photos, ctx.seen, CollageThemeSelection.MAX_CANDIDATES * 3), CollageCadence.MIN_PHOTOS)

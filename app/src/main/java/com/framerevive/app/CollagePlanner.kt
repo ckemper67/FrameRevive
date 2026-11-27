@@ -155,7 +155,7 @@ object CollagePlanner {
         val anchor = themePool.firstOrNull { it.dated }?.let(::dayOf) ?: return emptyList()
         val blocked = queue.ineligible(emptySet())
         fun shown(p: FramePhoto) = (ctx.seen[p.id]?.plays ?: 0) > 0
-        val week = ctx.photos.filter { it.dated && abs(dayOf(it) - anchor) <= WEEK_DAYS && it.id !in blocked && ctx.sharp(it) }
+        val week = ctx.dayIndex.window(anchor, WEEK_DAYS).filter { it.id !in blocked && ctx.sharp(it) }
         val onDay = week.filter { dayOf(it) == anchor }
         // Not yet shown first and spread through the day, so the walk does not take neighbours of one instant.
         val day = CollageThemes.ordered(onDay, ctx.seen, POOL_LIMIT)

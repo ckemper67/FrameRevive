@@ -180,7 +180,20 @@ class MainActivity : Activity() {
     private lateinit var caption: TextView
     private lateinit var night: TextView
     private val prefs by lazy { getSharedPreferences("frame-settings", MODE_PRIVATE) }
-    private var photos = emptyList<FramePhoto>()
+    private var photos: List<FramePhoto> = emptyList()
+        set(value) {
+            field = value
+            // The day index is built off the main thread whenever the catalog changes; planning asks for it through dayIndex().
+            if (value.isNotEmpty()) indexer.execute { dayIndexed = value to DayIndex(value) }
+        }
+    private val indexer = Executors.newSingleThreadExecutor()
+    @Volatile private var dayIndexed: Pair<List<FramePhoto>, DayIndex>? = null
+    /** The index of the current catalog: the one the worker built, or, in the moment after a change, one built here. */
+    private fun dayIndex(): DayIndex {
+        val held = dayIndexed
+        if (held != null && held.first === photos) return held.second
+        return DayIndex(photos).also { dayIndexed = photos to it }
+    }
     /** The main album as synced, before the favorites album is merged into [photos]. */
     @Volatile private var mainPhotos = emptyList<FramePhoto>()
     /** The second shared album ("Frame favorites"): its photos are favorites as they are. */
@@ -227,7 +240,7 @@ class MainActivity : Activity() {
     private val advance = Runnable { if (!playbackPaused) showNext() }
     private val hide = Runnable { if (displayed) controls.visibility = View.GONE }
     private val refresh = object : Runnable {
-        override fun run() { sync(); syncFavoriteAlbum(); handler.postDelayed(this, 60 * 60 * 1000L) }
+        override fun run() { sync(); syncFavoriteAlbum(); handler.postDelayed(this, RefreshSchedule.INTERVAL_MS) }
     }
     private val countCheck = object : Runnable {
         override fun run() { checkAlbumCount(); handler.postDelayed(this, 120_000) }
@@ -378,7 +391,9 @@ class MainActivity : Activity() {
             remote = FrameRemote(token, { remotePage() }, { fields -> applyRemote(fields) }, tls.listen(8765), upload = { input, length -> updater.receive(input, length) }, image = { currentImage() })
         } catch (_: Exception) { status.append("\nPhone management could not start.") }
         FramePower.schedule(this)
-        handler.post(refresh)
+        // The catalog on disk is already loaded: wait out what is left of the hour since the last good read instead of reading the
+        // whole album again at every start. The count check below still starts a read at once when the album has changed.
+        handler.postDelayed(refresh, RefreshSchedule.firstDelay(System.currentTimeMillis(), prefs.getLong("lastSuccessfulSync", 0L), photos.isNotEmpty()))
         handler.postDelayed(countCheck, 120_000)
         handler.post(clock)
     }
@@ -911,7 +926,7 @@ class MainActivity : Activity() {
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,{ p -> p.id in cachedIds && gate(p) },hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),enabledThemes(),
             prefs.getBoolean("pairs",true),playHistory,gate,fill = prefs.getBoolean("crop",true),
-            today = LocalDate.now(),memoryDays = prefs.getInt("memoryDays",14))
+            today = LocalDate.now(),memoryDays = prefs.getInt("memoryDays",14),dayIndexOverride = dayIndex())
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)

@@ -15,7 +15,10 @@ class SlideContext(
     /** The Fill the screen setting. With it and [pairs] on, unused space is never shown: nothing is letterboxed. */
     val fill: Boolean = true,
     /** Today, and how many days either side of it count as "on this day" in an earlier year (the memory window). */
-    val today: LocalDate = LocalDate.now(), val memoryDays: Int = 14) {
+    val today: LocalDate = LocalDate.now(), val memoryDays: Int = 14,
+    /** The album grouped by day, built on a worker when the catalog changed; built here, once, when none is given. */
+    dayIndexOverride: DayIndex? = null) {
+    val dayIndex: DayIndex by lazy { dayIndexOverride ?: DayIndex(photos) }
     /** Whether bars may not appear at all, so a photo that would not fill the frame is paired or tiled, or not shown. */
     val strict: Boolean get() = fill && pairs
     /** A photo's size: the album's own, or the downloaded file's when the album did not say. */

@@ -3,7 +3,11 @@ package com.framerevive.app
 import java.time.LocalDate
 
 /** One calendar day of the album: its photos in capture order. The day is the photo's own local day. */
-class AlbumDay(val epochDay: Long, val photos: List<FramePhoto>) {
+class AlbumDay(val epochDay: Long, private val unsorted: List<FramePhoto>) {
+    /** How many photos the day has, known without sorting them. */
+    val size: Int get() = unsorted.size
+    /** The day's photos in time order, sorted when first asked for: ranking 2,000 days must not sort all their photos. */
+    val photos: List<FramePhoto> by lazy { unsorted.sortedBy { it.takenMs } }
     val date: LocalDate get() = LocalDate.ofEpochDay(epochDay)
 }
 
@@ -27,22 +31,31 @@ object CollageThemeSelection {
      * Days are grouped with plain arithmetic, not a calendar conversion per photo, which stalled the UI thread.
      */
     fun rankedDays(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
+                   avoidDays: Set<LocalDate> = emptySet(), seen: Map<String, PlayRecord> = emptyMap(), minCount: Int = count): List<AlbumDay> =
+        rankedDays(DayIndex(album).days, count, cached, avoid, avoidDays, seen, minCount)
+
+    /** As [rankedDays] over [groups], the album's days already grouped (see [DayIndex]), so nothing is grouped here. */
+    fun rankedDays(groups: Map<Long, List<FramePhoto>>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
                    avoidDays: Set<LocalDate> = emptySet(), seen: Map<String, PlayRecord> = emptyMap(), minCount: Int = count): List<AlbumDay> {
         require(count in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS && minCount in CollageCadence.MIN_PHOTOS..count)
-        val groups = HashMap<Long, ArrayList<FramePhoto>>()
-        for (p in album) {
-            if (!p.dated || p.id in avoid) continue
-            groups.getOrPut(Math.floorDiv(p.takenMs + p.offsetMs, DAY_MS)) { ArrayList() } += p
-        }
-        fun rank(excluded: Set<Long>): List<AlbumDay> = groups.entries
-            .filter { (day, photos) -> day !in excluded && photos.size >= minCount }
-            .map { (day, photos) ->
-                Ranked(AlbumDay(day, photos.sortedBy { it.takenMs }), photos.count { it.id in cached } >= count,
-                    minOf(count, photos.count { it.id !in seen }), photos.sumOf { seen[it.id]?.lastShownMs ?: 0L } / photos.size)
+        fun rank(excluded: Set<Long>): List<AlbumDay> {
+            val ranked = ArrayList<Ranked>()
+            for ((day, all) in groups) {
+                if (day in excluded) continue
+                val photos = if (avoid.isEmpty()) all else all.filter { it.id !in avoid }
+                if (photos.size < minCount) continue
+                // One pass over the day for the three figures the ranking needs.
+                var ready = 0; var unseen = 0; var lastShown = 0L
+                for (p in photos) {
+                    if (p.id in cached) ready++
+                    val record = seen[p.id]
+                    if (record == null) unseen++ else lastShown += record.lastShownMs
+                }
+                ranked += Ranked(AlbumDay(day, photos), ready >= count, minOf(count, unseen), lastShown / photos.size)
             }
-            .sortedWith(compareByDescending<Ranked> { it.readyEnough }.thenByDescending { it.fresh }.thenBy { it.meanLastShown }
-                .thenByDescending { it.day.photos.size }.thenByDescending { it.day.epochDay })
-            .map { it.day }
+            return ranked.sortedWith(compareByDescending<Ranked> { it.readyEnough }.thenByDescending { it.fresh }.thenBy { it.meanLastShown }
+                .thenByDescending { it.day.size }.thenByDescending { it.day.epochDay }).map { it.day }
+        }
         val avoided = avoidDays.map { it.toEpochDay() }.toSet()
         return rank(avoided).ifEmpty { if (avoided.isEmpty()) emptyList() else rank(emptySet()) }
     }
@@ -52,20 +65,8 @@ object CollageThemeSelection {
      * memories use, so a moving holiday is caught. Only millisecond arithmetic per photo: a calendar conversion for each
      * of 15,000 photos costs about a third of a second on the frame.
      */
-    fun onThisDay(photos: List<FramePhoto>, today: LocalDate, memoryDays: Int): List<FramePhoto> {
-        val firstDay = photos.asSequence().filter { it.dated }.minOfOrNull { Math.floorDiv(it.takenMs + it.offsetMs, DAY_MS) } ?: return emptyList()
-        val thisYearStart = LocalDate.of(today.year, 1, 1).toEpochDay()
-        // One window per earlier year in the album, centred on the same month and day (29 February falls back to the 28th).
-        val windows = (LocalDate.ofEpochDay(firstDay).year until today.year).map { year ->
-            val centre = LocalDate.of(year, today.month, minOf(today.dayOfMonth, today.month.length(java.time.Year.isLeap(year.toLong())))).toEpochDay()
-            (centre - memoryDays)..(centre + memoryDays)
-        }
-        return photos.filter {
-            if (!it.dated) return@filter false
-            val day = Math.floorDiv(it.takenMs + it.offsetMs, DAY_MS)
-            day < thisYearStart && windows.any { w -> day in w }
-        }
-    }
+    fun onThisDay(photos: List<FramePhoto>, today: LocalDate, memoryDays: Int): List<FramePhoto> =
+        DayIndex(photos).onThisDay(today, memoryDays).values.flatten()
 
     /**
      * Candidates from the best single capture date: downloaded photos first, then the ones shown longest ago, so a
