@@ -34,6 +34,20 @@ class FrameWebTest {
         val shared=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("shared")))
         assertFalse(shared.contains("<h2>Switch to a shared album link</h2>"))
     }
+    @Test fun everySettingFieldIsCoveredByASectionMarkerSoASectionSavesOnlyItself() {
+        val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
+        val sections=mapOf(
+            "playbackSettings" to listOf("seconds","crop","date"),
+            "brightnessSettings" to listOf("brightness"),
+            "sleepSettings" to listOf("schedule","sleepStart","sleepEnd"),
+            "holidaySettings" to listOf("holidayTheme"),
+        )
+        sections.forEach { (marker, fields) ->
+            assertTrue("missing $marker",page.contains("name=\"$marker\" value=\"1\""))
+            fields.forEach { assertTrue("missing field $it",page.contains("name=\"$it\"")) }
+        }
+    }
+
     @Test fun pairToggleFollowsTheSavedSetting() {
         val on=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("pairs")))
         val off=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))

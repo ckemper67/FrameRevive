@@ -1410,11 +1410,18 @@ class MainActivity : Activity() {
                 }
                 "importSession", "loadAlbums", "selectAlbum" -> "Signed-in session setup has been retired. Connect a shared album link that opens without signing in. Existing saved-session playback is unchanged."
                 "save" -> {
-                    val start = LocalTime.parse(fields["sleepStart"]); val end = LocalTime.parse(fields["sleepEnd"])
+                    // Each section of the controls page saves only its own fields, marked by a hidden field, so a page
+                    // that lacks a section can never reset it. A form without any marker changes nothing in these.
+                    val changingSleep = fields["sleepSettings"] == "1"
+                    val changingPlayback = fields["playbackSettings"] == "1"
+                    val changingBrightness = fields["brightnessSettings"] == "1"
+                    val changingHoliday = fields["holidaySettings"] == "1"
+                    val start = if (changingSleep) LocalTime.parse(fields["sleepStart"]) else LocalTime.parse(prefs.getString("sleepStart", "22:00"))
+                    val end = if (changingSleep) LocalTime.parse(fields["sleepEnd"]) else LocalTime.parse(prefs.getString("sleepEnd", "07:00"))
                     require(start != end) { "Choose different sleep and wake times." }
-                    val seconds = fields["seconds"]?.toIntOrNull() ?: 30
+                    val seconds = if (changingPlayback) fields["seconds"]?.toIntOrNull() ?: 30 else prefs.getInt("seconds", 30)
                     require(seconds in 10..300) { "Choose 10 to 300 seconds per photo." }
-                    val brightness = fields["brightness"]?.toIntOrNull() ?: prefs.getInt("brightness",55)
+                    val brightness = if (changingBrightness) fields["brightness"]?.toIntOrNull() ?: prefs.getInt("brightness",55) else prefs.getInt("brightness",55)
                     require(brightness in 5..100) { "Choose 5 to 100 percent brightness." }
                     val changingMix=fields["mixSettings"] == "1"
                     val memoryDays=if(changingMix) fields["memoryDays"]?.toIntOrNull() ?: error("Memory window required") else prefs.getInt("memoryDays",14)
@@ -1425,14 +1432,15 @@ class MainActivity : Activity() {
                     val themeOn = CollageThemes.all.associate { it.id to (if(changingMix) fields.containsKey("collageTheme_${it.id}") else prefs.getBoolean("collageTheme_${it.id}",true)) }
                         .let { chosen -> if(chosen.values.none { it }) chosen + (CollageThemes.DAY.id to true) else chosen }
                     require(collageEvery in 5..100) { "Choose 5 to 100 photos between collages." }
-                    val holidayTheme = fields["holidayTheme"] ?: prefs.getString("holidayTheme", "off").orEmpty()
+                    val holidayTheme = (if (changingHoliday) fields["holidayTheme"] else null) ?: prefs.getString("holidayTheme", "off").orEmpty()
                     require(holidayTheme in HolidayTheme.labels) { "Choose a holiday theme from the list." }
                     val wasSleeping = FramePower.shouldSleep(this) || sleeping
                     val plannedBefore = plannedSlots()
-                    val edit = prefs.edit().putString("sleepStart",start.toString()).putString("sleepEnd",end.toString())
-                        .putBoolean("schedule",fields.containsKey("schedule")).putBoolean("crop",fields.containsKey("crop"))
-                        .putBoolean("date",fields.containsKey("date")).putInt("seconds",seconds).putInt("brightness",brightness)
-                    edit.putString("holidayTheme", holidayTheme)
+                    val edit = prefs.edit()
+                    if (changingSleep) edit.putString("sleepStart",start.toString()).putString("sleepEnd",end.toString()).putBoolean("schedule",fields.containsKey("schedule"))
+                    if (changingPlayback) edit.putBoolean("crop",fields.containsKey("crop")).putBoolean("date",fields.containsKey("date")).putInt("seconds",seconds)
+                    if (changingBrightness) edit.putInt("brightness",brightness)
+                    if (changingHoliday) edit.putString("holidayTheme", holidayTheme)
                     if (fields["transitionSettings"] == "1") edit.putBoolean("gentleTransitions",fields.containsKey("gentleTransitions"))
                     if (fields["ambientSettings"] == "1") edit.putBoolean("ambient",fields.containsKey("ambient"))
                     if (fields["dateSettings"] == "1") edit.putString("dateStyle",
