@@ -53,7 +53,69 @@ Tried in a throwaway clone, branching from `upstream/main` (`4aff43d`) and cherr
 
 The same is likely true of the other groups. Treat the commit lists above as where each feature came from, not as cherry-pick sets.
 
-Decision still open: rewrite each feature for `upstream/main`, or send them in dependency order (tiling, then planning, then favorites, then picture controls) so the later ones apply without rewriting. The second means larger early PRs; the first means more writing and testing per feature.
+Decision: send them in dependency order as stacked PRs, so the later ones apply without rewriting, and split the four large commits listed under "Commits to split". The analysis behind this is in "Proposed series" below.
+
+## Proposed series
+
+Method: for every commit, the identifiers it defines (classes, objects, functions, constants, camelCase names) and which later commits use them. Rolled up by feature, this gave a layering. It is a heuristic: a shared line of context counts as a use, and a real use through a generic name can be missed. Treat it as a strong hint and let the build and tests decide.
+
+What the layering showed:
+
+- Independent of everything: the sensor work, the deploy script, the signing tools, the retry backoff. (The WiFi update needs one name from Show Pair, `SlideMode`.)
+- `4f2b753` (Show Pair and same-day collages, about 1,000 lines of code) is the root. Almost everything else uses names it defines, so it goes first, split into parts.
+- The deck, bursts and engine commits depend on that root and on each other in a line; the engine refactor (`4207404` to `83d7fca`) sits under the later commits for recency, quality, day planning, collage themes and fill.
+- Favorites uses the deck, bursts, engine and day-planning code. The picture controls and the Google Photos link were written on top of favorites: the page's one row of buttons includes the Favorite button, and the link also handles the favorites album. So they follow favorites naturally.
+- "Fill the screen" (`602dc16`, `4eac8ed`) uses the engine, deck, recency and favorites code, so it goes last.
+
+### Series
+
+Quick wins (independent, send any time, in parallel):
+
+| PR | What | Commits |
+|---|---|---|
+| Q1 | Allow upside-down portrait | `b09c8f4` |
+| Q2 | Installed build SHA in diagnostics | `cc423be` |
+| Q3 | Ambient light sensor for brightness | `8001906` |
+| Q4 | Deploy script | `80c7be6`, `8ac0c9f`, `b93e151` |
+| Q5 | Signing and re-signing tools | `5d3e821` |
+| Q6 | Retry backoff | `32684f5` |
+| Q7 | WiFi update and silent install | `f130c98` (adapt the one `SlideMode` use) |
+
+The playback story, each PR on top of the one before:
+
+| PR | Story | Commits |
+|---|---|---|
+| P1 | Show Pair, with the white mat | `4f2b753` (pair part), `3f2d4dd`, `694b7e6` |
+| P2 | Same-day collages chosen by shape | `4f2b753` (collage part) |
+| P3 | Soft photos kept out of collages | `4f2b753` (`PhotoQuality` part) |
+| P4 | Steadier downloads | `7023b90`, `1274d7d` |
+| P5 | Never repeat, never miss: the deck | `6e7c771` |
+| P6 | Thin bursts and near-identical frames | `7183de5` |
+| P7 | The playback engine and its simulation (a refactor, no behavior change) | `4207404`, `f2fa7ca`, `19aabcb`, `04e2f6c`, `52801a1`, `b48147a`, `83d7fca` |
+| P8 | Better picks: seasonal deck, bursts in one pass, twins | `90d363d`, `b419d03`, `d4dbff5` |
+| P9 | Favor newer photos; skip soft photos on every slide | `f66c8f1` (split in two) |
+| P10 | Collage themes, four-photo layouts, dates in reading order | `18c097a` (split in three), `eadb88e`, `b654529`, `cc394a4` |
+| P11 | Plan by the day, with the Your album card | `2bbdeb5`, `d2b9528`, `2589ccd`, `e425c67` (split), plus the album tools `760b8ee`, `8c08102`, `8120b64` |
+| P12 | Favorites | `d010603`, `e55ba79`, `c7b61a6`, `f31d0d2`, `095e2a0`, `11ddf54`, `6980bd5`, `1be2025` |
+| P13 | Picture controls: current picture, one row, Google Photos link | `ad47b27`, `fe23bcd`, `f96831e`, `7a85f17`, `a8a5337` |
+| P14 | Fill the screen, no unused space | `602dc16`, `4eac8ed` |
+
+Documents (`curation-plan.md`, `playback-plan.md`, `day-coverage-plan.md`, `streams-plan.md`, the handoff, the changelog entries) go with the PR whose behavior they describe. The changelog is one growing section, so each PR should add only its own lines.
+
+### Commits to split
+
+- `4f2b753` (1,018 code lines): Show Pair (`PairSelection`, the pair slide), same-day collages (`CollageSelection`, `CollageThemeSelection`), the soft-photo gate (`PhotoQuality`) and the cache change (`FrameCache`). Four parts, three PRs (P1 to P3); the `FrameCache` part goes with P1 if the pair needs it, else with P4.
+- `18c097a` (946 code lines): collage themes, the free photo count with four-photo layouts, and dates in reading order (`FrameCaption`). Three parts.
+- `f66c8f1` (389): recency weighting and the soft-photo gate for every slide. Two parts.
+- `e425c67` (516): the Your album card and the blur wording. Two parts.
+
+### How to build it
+
+- Create one branch per PR, each on the one before, starting from `upstream/main`. Reorder the independent commits to the front.
+- Take unsplit commits with cherry-pick and resolve conflicts once; for the splits, apply the commit and stage by file or by hunk.
+- At every branch run `:app:assembleDebug :app:testDebugUnitTest lintDebug`. A series that builds at each step is the point.
+- Rebase the later PRs as earlier ones merge. Open the quick wins first, because they need no one else.
+- Do this in a clone, never on `favorites-f3`, which stays as the working history.
 
 ## How to check before opening a PR
 
