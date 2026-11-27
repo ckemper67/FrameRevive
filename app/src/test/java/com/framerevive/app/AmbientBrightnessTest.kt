@@ -166,14 +166,15 @@ class AmbientBrightnessTest {
         assertTrue("never came up", litAt >= 0)
     }
 
-    @Test fun theScreenGoesUpFasterThanDown() {
+    @Test fun theScreenGetsMostOfTheWayWithinASecondAndEquallyFastBothWays() {
         var up = 0.10f
         repeat(25) { up = AmbientBrightness.glide(up, 0.90f, 40L) } // one second
         var down = 0.90f
         repeat(25) { down = AmbientBrightness.glide(down, 0.10f, 40L) }
-        assertEquals(0.10f + 180f / 255f, up, 0.01f)
-        assertEquals(0.90f - 60f / 255f, down, 0.01f)
-        assertTrue(up - 0.10f > 2.5f * (0.90f - down))
+        // One time constant is 0.3 s, so a second covers about 96% of the distance.
+        assertTrue("up $up", up > 0.10f + 0.80f * 0.95f)
+        assertTrue("down $down", down < 0.90f - 0.80f * 0.95f)
+        assertEquals(up - 0.10f, 0.90f - down, 0.001f)
     }
 
     @Test fun theGlideNeverOvershootsAndArrivesAtTheTarget() {

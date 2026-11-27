@@ -1,6 +1,7 @@
 package com.framerevive.app
 
 import kotlin.math.abs
+import kotlin.math.exp
 
 /**
  * Screen brightness set from the ambient light level, using the device's own calibration and the way Android's
@@ -15,7 +16,8 @@ import kotlin.math.abs
  *
  * The sensor is read the way Android reads it (AutomaticBrightnessController, with the values this frame's firmware
  * sets, read from dumpsys display): see [Estimator] for the 10 second weighted average, the 3 second debounce and the
- * thresholds, [settle] for the thresholds on the screen level and [glide] for the ramps.
+ * thresholds and [settle] for the thresholds on the screen level. The screen then glides to its level in [glide], with
+ * the app's own quick timing rather than Android's slow ramps.
  * The owner's "Daytime brightness" stays the ceiling. The screen is never turned off: in a dark room it stays at the
  * table's lowest level, which is the panel's minimum (Android does not go below it).
  */
@@ -32,9 +34,11 @@ object AmbientBrightness {
     const val DARKEN_SHARE = 0.20f
     /** The estimate looks this far ahead of the newest reading, as Android's does. */
     const val PREDICTION_MS = 100L
-    /** How fast the screen goes up and down, in the 0..1 brightness per second (firmware: 180 and 60 of 255). */
-    const val RAMP_UP_PER_SECOND = 180f / 255f
-    const val RAMP_DOWN_PER_SECOND = 60f / 255f
+    /**
+     * Time constant of the glide to a new target, the same up and down. Android's own ramps (180 and 60 of 255 per second)
+     * take about four seconds to dim across the panel, which looks slow; a change is believed late enough already.
+     */
+    const val RAMP_SECONDS = 0.3f
     /** One step of the 0..255 backlight; closer than this the glide snaps to the target. */
     const val ONE_STEP = 1f / 255f
 
@@ -170,10 +174,10 @@ object AmbientBrightness {
         private fun integral(x: Double) = x * (0.5 * x + WEIGHT_INTERCEPT_MS)
     }
 
-    /** The brightness [dtMs] after [shown] while going to [target]: a straight ramp, up faster than down, snapping when close. */
+    /** The brightness [dtMs] after [shown] while going to [target]: quick at first, easing in, snapping when close. */
     fun glide(shown: Float, target: Float, dtMs: Long): Float {
-        val dt = dtMs.coerceAtLeast(0L) / 1000f
-        val next = if (target > shown) minOf(target, shown + RAMP_UP_PER_SECOND * dt) else maxOf(target, shown - RAMP_DOWN_PER_SECOND * dt)
+        val alpha = 1f - exp(-(dtMs.coerceAtLeast(0L) / 1000f) / RAMP_SECONDS)
+        val next = shown + (target - shown) * alpha
         return if (abs(target - next) <= ONE_STEP) target else next
     }
 }
