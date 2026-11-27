@@ -54,7 +54,8 @@ class DayIndexTest {
             val photo = LocalDate.of(2000 + random.nextInt(today.year - 2000), 1, 1).plusDays(random.nextLong(365))
             val n = random.nextInt(61)
             val p = on("p", photo)
-            val old = PhotoSelection.seasonal(listOf(p), today, n).isNotEmpty()
+            // What the singles used before the index: an earlier year, within n days by the circular day-of-year distance.
+            val old = photo.year < today.year && PhotoSelection.distance(photo, today) <= n
             val new = DayIndex(listOf(p)).onThisDay(today, n).isNotEmpty()
             if (old != new) {
                 differences++
@@ -62,5 +63,32 @@ class DayIndexTest {
             }
         }
         assertTrue("only a handful of edge cases differ, not $differences", differences < 40_000 / 100)
+    }
+
+    @Test fun theSinglesMemoriesKeepAlbumOrderAndLeaveOutUndatedPhotos() {
+        val today = LocalDate.of(2026, 1, 2)
+        val photos = listOf(on("b", LocalDate.of(2023, 1, 3)), FramePhoto("undated", "uu", 0L), on("c", LocalDate.of(2025, 12, 30)),
+            on("a", LocalDate.of(2024, 1, 1)), on("far", LocalDate.of(2024, 7, 1)), on("now", LocalDate.of(2026, 1, 1)))
+        // An undated photo is stored as 1970, which is within a window around New Year: it must not count as a memory.
+        assertEquals(listOf("b", "c", "a"), PhotoSelection.seasonal(photos, today, 7).map { it.id })
+        assertEquals(PhotoSelection.seasonal(photos, today, 7), PhotoSelection.seasonal(photos, today, 7, DayIndex(photos)))
+    }
+
+    @Test fun theSinglesMemoriesOverAWholeAlbumAreFastWithoutACalendarConversionPerPhoto() {
+        val today = LocalDate.of(2026, 11, 27)
+        val photos = (0 until 15_000).map { i -> on("z$i", today.minusDays(((i * 37L) % 7000) + 1)) }
+        PhotoSelection.seasonal(photos, today, 14)   // warm up
+        var oldMillis = Double.MAX_VALUE; var newMillis = Double.MAX_VALUE; var found = 0
+        repeat(4) {
+            var t = System.nanoTime()
+            found = PhotoSelection.seasonal(photos, today, 14).size
+            newMillis = minOf(newMillis, (System.nanoTime() - t) / 1_000_000.0)
+            // The old way, for comparison: a calendar conversion for every photo.
+            t = System.nanoTime()
+            photos.count { val d = LocalDate.ofEpochDay(Math.floorDiv(it.takenMs + it.offsetMs, dayMs)); d.year < today.year && PhotoSelection.distance(d, today) <= 14 }
+            oldMillis = minOf(oldMillis, (System.nanoTime() - t) / 1_000_000.0)
+        }
+        println("singles memories over 15,000 photos: new %.2f ms, old way %.2f ms (%d found)".format(newMillis, oldMillis, found))
+        assertTrue("new way took $newMillis ms", newMillis < 10.0)
     }
 }

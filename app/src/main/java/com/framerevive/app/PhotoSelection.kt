@@ -37,16 +37,16 @@ object PhotoSelection {
     }
 
     /**
-     * Photos captured on and around today's date in earlier years. Building this costs about a third of a
-     * second on a 15,000-photo album because every photo needs a calendar conversion, so the frame computes
-     * it on a worker and hands the result to [playlist] rather than paying for it while drawing.
+     * Photos captured on and around today's date in earlier years, in album order. The days come from the shared [DayIndex]
+     * (millisecond arithmetic, the same "on this day" the "On this day" collage theme uses), so there is no calendar
+     * conversion per photo; pass the index the frame already built for this catalog to save grouping the album again.
+     * It differs from the circular day-of-year distance this used (kept as [distance]) only by a day at the edge of a
+     * window around the end of February, and it no longer counts an undated photo (stored as 1970) as a memory.
      */
-    fun seasonal(photos: List<FramePhoto>, today: LocalDate, memoryDays: Int): List<FramePhoto> {
-        val todayYear = today.year
-        return photos.filter {
-            val day = LocalDate.ofEpochDay(Math.floorDiv(it.takenMs + it.offsetMs, 86_400_000L))
-            day.year < todayYear && distance(day, today) <= memoryDays
-        }
+    fun seasonal(photos: List<FramePhoto>, today: LocalDate, memoryDays: Int, index: DayIndex = DayIndex(photos)): List<FramePhoto> {
+        val days = index.onThisDay(today, memoryDays).keys
+        if (days.isEmpty()) return emptyList()
+        return photos.filter { it.dated && DayIndex.dayOf(it) in days }
     }
 
     /** Longest cycle a playlist may reach, however extreme the slider. */

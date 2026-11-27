@@ -133,8 +133,9 @@ class MainActivity : Activity() {
         if (seasonalKey == key || seasonalRefreshFor == key) return
         seasonalRefreshFor = key
         val snapshot = photos; val today = LocalDate.now(); val days = prefs.getInt("memoryDays",14)
+        val built = dayIndexed?.takeIf { it.first === snapshot }?.second   // the worker's index of this catalog, if it is ready
         historyWriter.execute {
-            seasonalPhotos = PhotoSelection.seasonal(snapshot, today, days)
+            seasonalPhotos = PhotoSelection.seasonal(snapshot, today, days, built ?: DayIndex(snapshot))
             // Bursts are a property of the album, not of a day, but the pass needs a sorted scan and so
             // belongs here rather than in the middle of drawing a slide.
             burstEvents = Bursts.events(photosByRecency.asReversed()).count { it.isBurst }
