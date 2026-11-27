@@ -188,6 +188,47 @@ class CollageThemesTest {
         assertEquals(SlideMode.SINGLE, slide.mode)
     }
 
+    @Test fun thePlannerPoolsAreTheMomentTheDayAndTheWeekAroundTheTheme() {
+        // Day 1 (the theme's best), day 5 within a week, day 40 outside it.
+        val album = run("a", 1, 9 * 60, 12, 8) + run("b", 5, 9 * 60, 12, 4) + run("c", 40, 9 * 60, 12, 6)
+        val chooser = chooser(album)
+        val ctx = context(album, setOf("day"))
+        val themePool = CollageThemes.DAY.candidates(ctx, chooser, 5, emptySet(), null)
+        val pools = CollagePlanner.pools(ctx, chooser, CollageThemes.DAY, themePool)
+        val byWindow = pools.associate { it.window to it.photos.map { p -> p.id } }
+        assertTrue("a day theme has no moment pool", CollagePlanner.Window.MOMENT !in byWindow)
+        val anchorPrefix = themePool.first().id.first()
+        assertTrue(byWindow.getValue(CollagePlanner.Window.DAY).all { it.startsWith(anchorPrefix) })
+        val week = byWindow.getValue(CollagePlanner.Window.WEEK)
+        assertTrue("the week includes the anchor day's photos first", week.first().startsWith(anchorPrefix))
+        assertTrue("and the nearby day", week.any { !it.startsWith(anchorPrefix) })
+        assertTrue("but not the day 40 days off", week.none { it.startsWith("c") })
+    }
+
+    @Test fun anOutingThemeAddsAMomentPool() {
+        val album = run("a", 1, 9 * 60, 12, 12)
+        val chooser = chooser(album)
+        val ctx = context(album, setOf("outing"))
+        val themePool = CollageThemes.OUTING.candidates(ctx, chooser, 5, emptySet(), null)
+        val pools = CollagePlanner.pools(ctx, chooser, CollageThemes.OUTING, themePool)
+        assertEquals(listOf(CollagePlanner.Window.MOMENT, CollagePlanner.Window.DAY, CollagePlanner.Window.WEEK), pools.map { it.window })
+        assertTrue(pools.first().photos.size <= themePool.size)
+    }
+
+    @Test fun buildingThePoolsOverAWholeAlbumIsFastEnoughForTheFrame() {
+        // 15,000 photos over 1,500 days; the scan is millisecond arithmetic and must stay that way.
+        val album = (0 until 15_000).map { i -> at("z$i", i / 10, (i % 10) * 30) }
+        val chooser = chooser(album.take(50))
+        val ctx = context(album, setOf("day"))
+        val themePool = album.filter { it.takenMs / dayMs == album[7_000].takenMs / dayMs }.take(12)
+        CollagePlanner.pools(ctx, chooser, CollageThemes.DAY, themePool)   // warm up
+        val start = System.nanoTime()
+        repeat(5) { CollagePlanner.pools(ctx, chooser, CollageThemes.DAY, themePool) }
+        val millis = (System.nanoTime() - start) / 5 / 1_000_000.0
+        println("pools over 15,000 photos: %.2f ms".format(millis))
+        assertTrue("took $millis ms", millis < 10.0)
+    }
+
     @Test fun aSingleEnabledThemeIsUsedEveryTime() {
         val album = threeDays()
         val chooser = chooser(album)

@@ -156,7 +156,11 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
             if (plan.size < CollageCadence.MIN_PHOTOS) {
                 for (theme in inTurn(ctx)) {
                     val pool = theme.candidates(ctx, queue, CollageCadence.MAX_PHOTOS, emptySet(), lastDay)
-                    if (pool.size >= CollageCadence.MIN_PHOTOS) { plan = pool; planTheme = theme; break }
+                    if (pool.size < CollageCadence.MIN_PHOTOS) continue
+                    // Choose the collage from the album's sizes and times, so only its photos and two spares are fetched;
+                    // the theme's own candidates are the fallback when the planner finds none.
+                    val choice = CollagePlanner.plan(ctx.width, ctx.height, ctx::dims, CollagePlanner.pools(ctx, queue, theme, pool))
+                    plan = choice?.downloads ?: pool; planTheme = theme; break
                 }
             }
             plan + queue.upcoming

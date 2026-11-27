@@ -57,7 +57,7 @@ object CollageThemes {
     private const val OUTING_SEEDS = 20
 
     /** Not yet shown first, then spread through time, so a collage shows different parts of the day. */
-    private fun ordered(photos: List<FramePhoto>, seen: Map<String, PlayRecord>, limit: Int): List<FramePhoto> {
+    internal fun ordered(photos: List<FramePhoto>, seen: Map<String, PlayRecord>, limit: Int): List<FramePhoto> {
         val (shown, unseen) = photos.partition { (seen[it.id]?.plays ?: 0) > 0 }
         val first = TimeSpread.order(unseen, limit = limit)
         return first + TimeSpread.order(shown, anchors = first.map { it.takenMs }, limit = limit - first.size)

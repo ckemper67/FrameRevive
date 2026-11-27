@@ -1,9 +1,17 @@
 # Plan: picking the photos for a collage
 
-Status: proposed (2026-11-27). Nothing here is built. The layouts, the 25 percent crop cutoff and the grey mat are
-already in (see `collage-themes.md` and `preloading-mix-collages.md`); this plan is about which photos go into them
-and when they are chosen. The design comes from a review of the problem; the measurements were made on the owner's
-real album with exact photo shapes.
+Status (2026-11-27): stage 1, the planner that chooses from the album's sizes and times, is built (`CollagePlanner`);
+stages 2 to 4 are proposed. The layouts, the 25 percent crop cutoff and the grey mat are already in (see
+`collage-themes.md` and `preloading-mix-collages.md`); this plan is about which photos go into them and when they
+are chosen. The design comes from a review of the problem; the measurements were made on the owner's real album with
+exact photo shapes.
+
+How the pieces divide the work: a theme (a day, one outing) only chooses an occasion, and the themes still take turns
+so consecutive collages differ. The planner builds the candidate pools around that occasion (the moment, the day, the
+week), finds the best collage in each, and scores them: a bonus for the number of photos, minus the worst crop, minus a
+small penalty for a wider window (0 for a moment, 0.03 for a day, 0.08 for a week), so a closer occasion is preferred
+and a week still wins when the day lacks the shapes, as on a holiday. Only the chosen photos and two spares are
+downloaded, a pair that tiles on its own first.
 
 ## Where we are
 
@@ -103,7 +111,7 @@ cheap.
 
 ## Staged plan
 
-1. **Planner from metadata.** Replace the theme's 12 candidates by the walk's choice plus spares and the new download
+1. **Planner from metadata (built).** Replace the theme's 12 candidates by the walk's choice plus spares and the new download
    order. Keep the existing fit at display time. Measure the share of fives, the downloads per collage and the time
    per decision on the frame (the Deck build line in Diagnostics shows slow code).
 2. **Exact shapes** in the picker's grouping, so no photo exceeds the limit.
