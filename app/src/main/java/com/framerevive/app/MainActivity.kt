@@ -310,7 +310,11 @@ class MainActivity : Activity() {
         button("Previous") { showPrevious() }
         button("Next") { handler.removeCallbacks(advance); showNext() }
         pauseButton = button(if (playbackPaused) "Resume" else "Pause") { setPlaybackPaused(!playbackPaused) }
-        button("Favorite") { favoriteSlide() }
+        button("Favorite") {
+            val answer = favoriteSlide()
+            // A single photo shows its own star animation; only a refusal needs words.
+            if ((lastSlide?.photos?.size ?: 1) > 1) android.widget.Toast.makeText(this, answer, android.widget.Toast.LENGTH_SHORT).show()
+        }
         button("Refresh") { sync() }
         button("Settings") { settings() }
         button("Close") { handler.post { controlsUntil = 0; controls.visibility = View.GONE; handler.removeCallbacks(hide) } }
@@ -543,14 +547,16 @@ class MainActivity : Activity() {
 
     /**
      * Stars the photo on screen, or removes its star. The slide is read when the press arrives, so a press during a
-     * transition applies to the photo the owner was looking at. A collage or pair asks which picture, because starring
-     * pictures the owner did not mean would be worse than one more tap.
+     * transition applies to the photo the owner was looking at. A collage or pair cannot be starred: which of its
+     * pictures is meant is not clear, and a pair is often just two pictures that fit the screen together. With
+     * [pauseInstead] (the Star button) the press pauses or resumes the slideshow, so the owner can look at the slide;
+     * otherwise nothing changes and the answer says why.
      */
-    private fun favoriteSlide(): String {
+    private fun favoriteSlide(pauseInstead: Boolean = false): String {
         val slide = lastSlide ?: return "No photo is on screen yet."
         if (slide.photos.size == 1) return toggleFavorite(slide.photos[0])
-        handler.post { chooseFavorite(slide) }
-        return "Choose which picture to star on the frame."
+        if (pauseInstead) { handler.post { setPlaybackPaused(!playbackPaused) }; return "Starring does not work for multiple pictures." }
+        return "Starring does not work for multiple pictures."
     }
 
     private fun toggleFavorite(photo: FramePhoto): String {
@@ -560,16 +566,6 @@ class MainActivity : Activity() {
         if (favoriteAlbum.any { it.id == photo.id }) network.execute { applyCombined() }
         handler.post { showFavoriteChange(on) }
         return if (on) "Added to favorites." else "Removed from favorites."
-    }
-
-    private fun chooseFavorite(slide: FrameSlide) {
-        if (closed || sleeping) return
-        val photos = inReadingOrder(slide)
-        // The pictures in the order they are read on screen, each named by its date and whether it is starred.
-        fun label(i: Int) = "${i + 1}. ${if (photos[i].dated) photos[i].date().format(FrameCaption.DATE) else "Undated"}${if (favorites.isFavorite(photos[i].id)) "  (favorite)" else ""}"
-        AlertDialog.Builder(this).setTitle("Star which picture?")
-            .setItems(Array(photos.size) { label(it) }) { _, i -> toggleFavorite(photos[i]) }
-            .setNegativeButton("Cancel", null).show()
     }
 
     /** The gold star on a favorite while it is on screen; a collage or pair has its stars on the favorite's own tile instead. */
@@ -641,7 +637,7 @@ class MainActivity : Activity() {
             FrameButtons.Action.NEXT -> showNext()
             FrameButtons.Action.PREVIOUS -> showPrevious()
             FrameButtons.Action.TOGGLE_PAUSE -> setPlaybackPaused(!playbackPaused)
-            FrameButtons.Action.TOGGLE_FAVORITE -> favoriteSlide()
+            FrameButtons.Action.TOGGLE_FAVORITE -> favoriteSlide(pauseInstead = true)
             FrameButtons.Action.CONTROLS -> showControls()
             FrameButtons.Action.NONE -> Unit
         }

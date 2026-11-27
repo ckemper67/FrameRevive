@@ -54,7 +54,7 @@ Details that matter:
 
 - Bind the star to the slide that was on screen when the button went down, not when the handler runs, so a press during a transition cannot star the next photo.
 - Feedback is a small filled star drawn near the caption for about two seconds ("Added to favorites"), and a favorite shows a faint star while it is on screen. Pressing again un-stars and says so. The pause badge and the star must not collide.
-- A collage or pair has several pictures. v1: the overlay button stars the whole slide only when it is a single photo, and for a collage it opens a short choice listing the pictures by position (the same left-to-right, top-to-bottom order the dates use). Starring every picture of a collage would mark pictures the owner did not mean.
+- A collage or pair has several pictures. Only a single photo can be starred. The Star button then pauses or resumes the slideshow, and the controls and the web page say "Starring does not work for multiple pictures." A short choice listing the pictures was tried and dropped: it is a dialog on a screen with no pointer, a pair is often just two pictures that fit together, and with one favorite and one ordinary picture it is not clear whether the owner means to star or un-star. Starring every picture of a collage would mark pictures the owner did not mean. A favorite that appears in a collage still shows its star on its own tile.
 - Starring is allowed while paused and in preview; un-starring a seeded favorite sets `vetoed`.
 
 ## 3. Seeding from Google
@@ -150,7 +150,7 @@ Each on its own branch, stacked, with the simulation numbers recorded in this do
 | F1 | Store (`favorites.tsv`), in-memory set, star in the overlay and on the Everyday page, the Star button setting, feedback, un-star, export and import, the card line. Tests for persistence across restart, album refresh and album switch. | Useful alone; nothing changes in what is shown. |
 | F2 | Weighting: a fixed share of the plan, favorites deck, spacing, burst and gate exemptions, the three-way setting, Your album card text, simulation report. | Must be tuned before seeding can add hundreds. |
 | F3 | Built: the favorites album (`FavoriteAlbum.merge`, `favorites-album.json`, a card with the link and Check again), seeded with the `vetoed` rules. | Last, because it adds the volume the weighting has to handle. |
-| F4 | Starring one picture of a collage, optional favorites collage theme. | Polish. |
+| F4 | Optional favorites collage theme. Starring one picture of a collage is not supported for now (see section 2). | Polish. |
 
 ## Progress
 
@@ -190,7 +190,7 @@ Design points that changed while building:
 1. ~~Signed in or a shared link?~~ Answered: a shared link, so seeding is route B (second shared album) plus C (Takeout).
 2. ~~The physical star button~~ Answered: a setting, Pause or resume (default) or Favorite this photo.
 3. Roughly how many favorites on Google? No longer affects the plan (the share is independent of it); it only tells how often each one will return.
-4. A collage: choose which picture to star, as proposed, or star all of them?
+4. ~~A collage: choose which picture to star, or star all of them?~~ Answered: neither for now. Only single photos can be starred; on a collage the Star button pauses instead.
 5. Default setting "Now and then" (5% of the day, 12 photos at your pace), or more? Also answered in part: the number of favorites does not change the share.
 
 ## 7. Risks and what would change the plan
