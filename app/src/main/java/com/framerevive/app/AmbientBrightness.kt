@@ -5,47 +5,83 @@ import kotlin.math.exp
 import kotlin.math.ln
 
 /**
- * Screen brightness that follows the room, using the panel's own calibration.
+ * Screen brightness that follows the room, using the device's own calibration.
  *
- * Lenovo ships a lux to backlight table in this frame's firmware (framework-res config_autoBrightnessLevels and
- * config_autoBrightnessLcdBacklightValues, read over adb 2026-11-26). It spans the panel's real range, backlight 9 to
- * 235 of 255 (config_screenBrightnessSettingMinimum/Maximum), and reaches full at 290 lux. Between its points the
- * backlight rises steadily with lux, as a print's luminance does; it runs about 1.3 times a paper-matching model at
- * 80 lux, which suits a lit screen needing more light than paper to look equal. Android's own automatic brightness
- * would use this table; the app overrides it with a window brightness, so it follows the table itself.
- * The owner's "Daytime brightness" stays the ceiling.
+ * Android devices ship a lux to backlight table in framework-res (config_autoBrightnessLevels and
+ * config_autoBrightnessLcdBacklightValues). It matches the panel's real range and rises steadily with lux, as the
+ * brightness of a print does in the same room; a lit screen needs somewhat more light than paper to look as bright.
+ * Android's own automatic brightness would use this table, but the app sets a window brightness, which overrides it,
+ * so the app follows the table itself. [Curve.fromDevice] builds the curve from the device's arrays and refuses a
+ * table that is empty or inconsistent; with no usable table the brightness stays at the fixed daytime level.
+ * The owner's "Daytime brightness" stays the ceiling. The screen is never turned off: in a dark room it stays at the
+ * table's lowest level, which is the panel's minimum (Android does not go below it).
  */
 object AmbientBrightness {
-    /** Lux at which each backlight value in [BACKLIGHT] starts (the firmware's levels with 0 in front). */
-    private val LUX = floatArrayOf(0f, 5f, 8f, 11f, 14f, 17f, 20f, 25f, 30f, 40f, 50f, 65f, 80f, 100f, 120f, 150f, 180f, 210f, 240f, 290f)
-    private val BACKLIGHT = floatArrayOf(9f, 9f, 19f, 29f, 39f, 49f, 60f, 71f, 79f, 87f, 94f, 104f, 112f, 128f, 137f, 149f, 166f, 188f, 205f, 235f)
-    /** The panel's backlight range on a 0..255 scale. */
-    const val PANEL_MIN = 9f
-    const val PANEL_MAX = 235f
-    /** Time constant of the lux smoothing: a lamp switched on is believed within a couple of seconds. */
+    /** Time constant of the lux smoothing. The sensor reads whole lux and jumps around by a couple of lux in a dim room; the hold in [settle] deals with what is left. */
     const val SMOOTHING_SECONDS = 2f
-    /** Time constant of the glide to a new target. Together with the smoothing this settles in about 3 seconds. */
-    const val RAMP_SECONDS = 0.5f
+    /** Time constant of the glide to a new target, after the smoothing has believed the change. */
+    const val RAMP_SECONDS = 0.3f
     /** One step of the 0..255 backlight; closer than this the glide snaps to the target. */
     const val ONE_STEP = 1f / 255f
+    /** A change of the level smaller than this share of it is ignored, so sensor noise cannot make the screen flicker. */
+    const val HOLD_SHARE = 0.15f
 
-    /** Lenovo's backlight value, 9..235, for a room of [lux], interpolated between the table's points. */
-    fun panelBacklight(lux: Float): Float {
-        if (lux.isNaN() || lux <= LUX.first()) return BACKLIGHT.first()
-        if (lux >= LUX.last()) return BACKLIGHT.last()
-        var i = 1
-        while (LUX[i] < lux) i++
-        val t = (lux - LUX[i - 1]) / (LUX[i] - LUX[i - 1])
-        return BACKLIGHT[i - 1] + (BACKLIGHT[i] - BACKLIGHT[i - 1]) * t
+    /** A lux to backlight (0..255) table; [backlight] has one entry per entry of [lux], interpolated between. */
+    class Curve(private val lux: FloatArray, private val backlight: FloatArray, val source: String) {
+        /** Points in the table. */
+        val size: Int get() = lux.size
+
+        /** The backlight value for a room of [roomLux], interpolated between the table's points. */
+        fun backlight(roomLux: Float): Float {
+            if (roomLux.isNaN() || roomLux <= lux.first()) return backlight.first()
+            if (roomLux >= lux.last()) return backlight.last()
+            var i = 1
+            while (lux[i] < roomLux) i++
+            val t = (roomLux - lux[i - 1]) / (lux[i] - lux[i - 1])
+            return backlight[i - 1] + (backlight[i] - backlight[i - 1]) * t
+        }
+
+        companion object {
+            /**
+             * Builds the curve from Android's two arrays: [levels] are the lux thresholds and [values] the backlight from
+             * each one up, with one more value than levels (the first is for a room darker than the first level).
+             * Returns null unless the table is usable: non-empty, the right length, lux rising and backlight within 0..255,
+             * never falling, and not flat.
+             */
+            fun fromDevice(levels: IntArray, values: IntArray): Curve? {
+                if (levels.isEmpty() || values.size != levels.size + 1) return null
+                if (levels.first() < 0 || levels.toList().zipWithNext().any { (a, b) -> b <= a }) return null
+                if (values.any { it !in 0..255 } || values.toList().zipWithNext().any { (a, b) -> b < a }) return null
+                if (values.first() == values.last()) return null
+                return Curve(floatArrayOf(0f) + levels.map { it.toFloat() }, values.map { it.toFloat() }.toFloatArray(), "device table")
+            }
+        }
     }
 
-    /** Window brightness, 0..1: the table's level, never above the daytime setting or below the panel minimum. */
-    fun level(daytimePercent: Int, lux: Float?, enabled: Boolean): Float {
+    /** Window brightness, 0..1: the curve's level, never above the daytime setting. */
+    fun level(daytimePercent: Int, lux: Float?, enabled: Boolean, curve: Curve?): Float {
         val ceiling = FrameSchedule.awakeBrightness(daytimePercent)
-        if (!enabled || lux == null || lux.isNaN()) return ceiling
-        // The ceiling is at least 5%, above the panel minimum of 3.5%, so capping after the floor cannot invert them.
-        return (panelBacklight(lux) / 255f).coerceAtLeast(PANEL_MIN / 255f).coerceAtMost(ceiling)
+        if (!enabled || curve == null || lux == null || lux.isNaN()) return ceiling
+        return (curve.backlight(lux) / 255f).coerceAtMost(ceiling)
     }
+
+    /**
+     * The level to aim for: [held], the one already aimed at, until [wanted] has moved away from it by more than
+     * [HOLD_SHARE] of it (and by at least two backlight steps). The sensor reads whole lux and jumps around by a couple
+     * of lux; at a dim level that would otherwise move the backlight by a visible step several times a second.
+     * With nothing held, [wanted] is taken.
+     */
+    fun settle(held: Float?, wanted: Float): Float {
+        if (held == null) return wanted
+        val band = maxOf(2 * ONE_STEP, HOLD_SHARE * held)
+        return if (abs(wanted - held) >= band) wanted else held
+    }
+
+    /** The Diagnostics line: whether it is on, which table, the room's light, and the screen level against the daytime setting. */
+    fun report(enabled: Boolean, curve: Curve?, rawLux: Float?, smoothedLux: Float?, shown: Float?, daytimePercent: Int): String =
+        "Ambient brightness: ${if (enabled) "on" else "off"}; table ${curve?.let { "${it.source}, ${it.size} points" } ?: "none, fixed level"}; " +
+            "room ${rawLux?.let { "${it.toInt()} lux now" } ?: "no reading"}, ${smoothedLux?.let { "${it.toInt()} lux smoothed" } ?: "-"}; " +
+            "screen ${shown?.let { "${(it * 100).toInt()}%" } ?: "-"} of a $daytimePercent% daytime setting"
 
     /** Smooths lux readings over time in log space; the first reading is taken as is. */
     class Smoother {

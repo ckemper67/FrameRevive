@@ -238,7 +238,7 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        window.attributes = window.attributes.apply { screenBrightness = currentBrightness() }; shownBrightness = currentBrightness()
+        startBrightness().let { start -> window.attributes = window.attributes.apply { screenBrightness = start }; shownBrightness = start }
         enterFullscreen()
         client = PrivatePhotosClient(this)
         // The cache naming scheme changed; drop files named under the old one once.
@@ -321,6 +321,7 @@ class MainActivity : Activity() {
             setOnClickListener { settings() }
         }
         root.addView(night, FrameLayout.LayoutParams(-1, -1))
+        if (waitingForLight()) handler.postDelayed(lightTimeout, 5_000)
         setContentView(root)
         try {
             val seed = File(filesDir, "album-seed.json")
@@ -709,7 +710,8 @@ class MainActivity : Activity() {
         val shouldSleep = prefs.getBoolean("schedule", false) && FrameSchedule.isSleeping(now, start, end)
         // Always restore our own daytime level; the abandoned ambient-light service
         // can leave Android's global automatic brightness at its minimum overnight.
-        window.attributes = window.attributes.apply { screenBrightness = if (shouldSleep) 0f else currentBrightness() }; shownBrightness = if (shouldSleep) null else currentBrightness()
+        val level = if (shouldSleep) 0f else startBrightness()
+        window.attributes = window.attributes.apply { screenBrightness = level }; shownBrightness = if (shouldSleep) null else level
         // Updating brightness does not wake a display locked by DevicePolicyManager.
         // Capture the old schedule when saving, including while the activity is paused.
         if (!shouldSleep && (sleeping || wakeFromSchedule) && !getSystemService(android.os.PowerManager::class.java).isInteractive) {
@@ -1181,6 +1183,15 @@ class MainActivity : Activity() {
      * ceiling; the "ambient" setting turns the following off. The sensor is only read while the activity is resumed.
      */
     private val lightSmoother = AmbientBrightness.Smoother()
+    /** The device's own lux to backlight table (Android's automatic brightness calibration), else none (fixed brightness). */
+    private val brightnessCurve: AmbientBrightness.Curve? by lazy {
+        val res = android.content.res.Resources.getSystem()
+        fun array(name: String): IntArray? = res.getIdentifier(name, "array", "android").takeIf { it != 0 }
+            ?.let { try { res.getIntArray(it) } catch (_: Exception) { null } }
+        val levels = array("config_autoBrightnessLevels")
+        val values = array("config_autoBrightnessLcdBacklightValues")
+        if (levels != null && values != null) AmbientBrightness.Curve.fromDevice(levels, values) else null
+    }
     private var shownBrightness: Float? = null
     private var rawLux: Float? = null
     private val lightListener = object : android.hardware.SensorEventListener {
@@ -1191,8 +1202,14 @@ class MainActivity : Activity() {
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
     }
+    /** True until the sensor has given its first reading, when following the room is on and there is a table to follow. */
+    private fun waitingForLight() = prefs.getBoolean("ambient", true) && brightnessCurve != null && lightSmoother.lux == null
+    /** The level to set when the activity starts or wakes: the dimmest, until the first reading, so a dark room never gets a bright start. */
+    private fun startBrightness(): Float = if (waitingForLight()) 0f else currentBrightness()
+    /** If no reading ever arrives (no working sensor), use the daytime level rather than stay dim. */
+    private val lightTimeout = Runnable { if (lightSmoother.lux == null && !sleeping) applyBrightness(force = true) }
     private fun currentBrightness(): Float =
-        AmbientBrightness.level(prefs.getInt("brightness", 55), lightSmoother.lux, prefs.getBoolean("ambient", true))
+        AmbientBrightness.level(prefs.getInt("brightness", 55), lightSmoother.lux, prefs.getBoolean("ambient", true), brightnessCurve)
     private var brightnessTarget: Float? = null
     private var brightnessTickAt = 0L
     private fun setWindowBrightness(level: Float) {
@@ -1213,7 +1230,7 @@ class MainActivity : Activity() {
     }
     private fun applyBrightness(force: Boolean = false) {
         if (sleeping) return
-        val target = currentBrightness()
+        val target = AmbientBrightness.settle(if (force) null else brightnessTarget, currentBrightness())
         brightnessTarget = target
         if (force || shownBrightness == null) { handler.removeCallbacks(brightnessTick); setWindowBrightness(target); return }
         if (!handler.hasCallbacks(brightnessTick) && shownBrightness != target) {
@@ -1226,10 +1243,8 @@ class MainActivity : Activity() {
         sm.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT)?.let { sm.registerListener(lightListener, it, android.hardware.SensorManager.SENSOR_DELAY_NORMAL) }
     }
     private fun stopLightSensor() { handler.removeCallbacks(brightnessTick); getSystemService(android.hardware.SensorManager::class.java).unregisterListener(lightListener) }
-    private fun lightReport(): String {
-        val lux = lightSmoother.lux
-        return "Ambient brightness: ${if (prefs.getBoolean("ambient", true)) "on" else "off"}; room ${rawLux?.let { "${it.toInt()} lux now" } ?: "no reading"}, ${lux?.let { "${it.toInt()} lux smoothed" } ?: "-"}; screen ${shownBrightness?.let { "${(it * 100).toInt()}%" } ?: "-"} of a ${prefs.getInt("brightness", 55)}% daytime setting"
-    }
+    private fun lightReport(): String =
+        AmbientBrightness.report(prefs.getBoolean("ambient", true), brightnessCurve, rawLux, lightSmoother.lux, shownBrightness, prefs.getInt("brightness", 55))
     override fun onResume() {
         super.onResume(); active = true; enterFullscreen()
         buttonLights.start(); startLightSensor()
