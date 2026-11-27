@@ -1182,7 +1182,7 @@ class MainActivity : Activity() {
      * Screen brightness is set from the ambient light level (see AmbientBrightness). The owner's daytime percentage is the
      * ceiling; the "ambient" setting turns the following off. The sensor is only read while the activity is resumed.
      */
-    private val lightSmoother = AmbientBrightness.Smoother()
+    private val lightSmoother = AmbientBrightness.Estimator()
     /** The device's own lux to backlight table (Android's automatic brightness calibration), else none (fixed brightness). */
     private val brightnessCurve: AmbientBrightness.Curve? by lazy {
         val res = android.content.res.Resources.getSystem()
@@ -1238,11 +1238,19 @@ class MainActivity : Activity() {
             handler.post(brightnessTick)
         }
     }
+    /** Re-evaluates the light estimate every 250 ms, as Android does, because readings can stop coming when the light is steady. */
+    private val lightTick = object : Runnable {
+        override fun run() {
+            if (lightSmoother.update(android.os.SystemClock.elapsedRealtime())) applyBrightness()
+            handler.postDelayed(this, 250)
+        }
+    }
     private fun startLightSensor() {
         val sm = getSystemService(android.hardware.SensorManager::class.java)
         sm.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT)?.let { sm.registerListener(lightListener, it, android.hardware.SensorManager.SENSOR_DELAY_NORMAL) }
+        handler.removeCallbacks(lightTick); handler.postDelayed(lightTick, 250)
     }
-    private fun stopLightSensor() { handler.removeCallbacks(brightnessTick); getSystemService(android.hardware.SensorManager::class.java).unregisterListener(lightListener) }
+    private fun stopLightSensor() { handler.removeCallbacks(brightnessTick); handler.removeCallbacks(lightTick); getSystemService(android.hardware.SensorManager::class.java).unregisterListener(lightListener) }
     private fun lightReport(): String =
         AmbientBrightness.report(prefs.getBoolean("ambient", true), brightnessCurve, rawLux, lightSmoother.lux, shownBrightness, prefs.getInt("brightness", 55))
     override fun onResume() {

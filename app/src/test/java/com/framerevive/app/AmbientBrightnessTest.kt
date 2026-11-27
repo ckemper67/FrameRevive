@@ -77,30 +77,117 @@ class AmbientBrightnessTest {
         assertNull(AmbientBrightness.Curve.fromDevice(intArrayOf(10, 20), intArrayOf(50, 50, 50)))
     }
 
-    @Test fun aLampSwitchedOnIsBelievedGraduallyNotAtOnce() {
-        val smoother = AmbientBrightness.Smoother()
-        smoother.add(2f, 0L)
-        val after1s = smoother.add(300f, 1_000L)
-        assertTrue(after1s < 100f)
-        val after60s = smoother.add(300f, 61_000L)
-        assertEquals(300f, after60s, 5f)
+    // The sensor reads about 5 times a second.
+    private fun feed(estimator: AmbientBrightness.Estimator, from: Long, seconds: Int, lux: (Int) -> Float): Long {
+        var t = from
+        repeat(seconds * 5) { estimator.add(lux(it), t); t += 200 }
+        return t
     }
 
-    @Test fun theGlideMovesTowardTheTargetWithoutOvershooting() {
+    @Test fun theFirstReadingIsTakenAsItIs() {
+        val estimator = AmbientBrightness.Estimator()
+        assertEquals(null, estimator.lux)
+        assertTrue(estimator.add(42f, 0L))
+        assertEquals(42f, estimator.lux!!, 0.01f)
+    }
+
+    @Test fun aBrighterRoomIsBelievedOnlyAfterThreeSecondsOfIt() {
+        val estimator = AmbientBrightness.Estimator()
+        val t0 = feed(estimator, 0L, 12) { 10f }
+        assertEquals(10f, estimator.lux!!, 0.01f)
+        var t = t0
+        while (t < t0 + 2_800) { estimator.add(100f, t); t += 200 }
+        assertEquals("believed too soon", 10f, estimator.lux!!, 0.01f)
+        while (t < t0 + 3_400) { estimator.add(100f, t); t += 200 }
+        assertTrue("not believed after 3 seconds, ${estimator.lux}", estimator.lux!! > 20f)
+    }
+
+    @Test fun aSingleStrayReadingChangesNothing() {
+        val estimator = AmbientBrightness.Estimator()
+        var t = feed(estimator, 0L, 12) { 10f }
+        estimator.add(1000f, t); t += 200
+        feed(estimator, t, 10) { 10f }
+        assertEquals(10f, estimator.lux!!, 0.01f)
+    }
+
+    @Test fun aRiseOfTenPercentIsBelievedButAFallOfFifteenPercentIsNot() {
+        val up = AmbientBrightness.Estimator()
+        feed(up, feed(up, 0L, 12) { 100f }, 12) { 115f }
+        assertTrue("a rise past the brightening share is believed, ${up.lux}", up.lux!! > 100f)
+        val down = AmbientBrightness.Estimator()
+        feed(down, feed(down, 0L, 12) { 100f }, 12) { 85f }
+        assertEquals("a fall short of the darkening share is not", 100f, down.lux!!, 0.01f)
+    }
+
+    @Test fun aFallPastTwentyPercentIsBelievedAfterThreeSeconds() {
+        val estimator = AmbientBrightness.Estimator()
+        feed(estimator, feed(estimator, 0L, 12) { 100f }, 12) { 60f }
+        assertTrue("was ${estimator.lux}", estimator.lux!! < 80f)
+    }
+
+    @Test fun readingsThatStopComingAreStillBelievedWhenTheEstimateIsUpdated() {
+        val estimator = AmbientBrightness.Estimator()
+        val t0 = feed(estimator, 0L, 12) { 10f }
+        estimator.add(100f, t0)
+        var t = t0
+        while (t < t0 + 4_000) { t += 250; estimator.update(t) }
+        assertTrue("was ${estimator.lux}", estimator.lux!! > 20f)
+    }
+
+    @Test fun theNoisySensorOfADimRoomOrALampChangesTheEstimateNotAtAll() {
+        // Whole-lux readings from a real sensor, 5 per second: a dim room of 4 to 7 lux, and a small lamp of about 3.
+        val dim = listOf(5, 6, 4, 5, 6, 5, 4, 6, 4, 6, 4, 6, 4, 5, 1, 7, 5, 6, 5, 6, 5, 4, 5, 4, 5, 6, 5, 7, 4, 7, 5,
+            2, 4, 6, 8, 5, 4, 7, 6, 7, 4, 6, 4, 5, 4, 5, 4, 6, 5, 6)
+        val lamp = listOf(3, 4, 3, 4, 3, 2, 4, 2, 4, 3, 2, 3, 1, 3, 0, 2, 4, 3, 2, 3, 4, 3, 5, 4, 2, 4, 3, 2, 4, 3, 4, 2, 3, 2,
+            3, 4, 5, 4, 3, 2, 3, 0, 3, 4, 5, 2, 3, 5, 3, 5)
+        for (readings in listOf(dim, lamp)) {
+            val estimator = AmbientBrightness.Estimator()
+            var changes = 0
+            var t = 0L
+            repeat(6) { round -> readings.forEach { if (estimator.add(it.toFloat(), t) && !(round == 0 && t == 0L)) changes++; t += 200 } }
+            assertEquals("changes for $readings", 0, changes)
+        }
+    }
+
+    @Test fun aSmallLampAboutThreeLuxBringsTheEstimateUpAfterTheDarkAndKeepsItThere() {
+        val lamp = listOf(3, 4, 3, 4, 3, 2, 4, 2, 4, 3, 2, 3, 1, 3, 0, 2, 4, 3, 2, 3, 4, 3, 5, 4, 2, 4, 3, 2, 4, 3, 4, 2, 3, 2,
+            3, 4, 5, 4, 3, 2, 3, 0, 3, 4, 5, 2, 3, 5, 3, 5)
+        val estimator = AmbientBrightness.Estimator()
+        var t = feed(estimator, 0L, 20) { listOf(0f, 1f, 0f, 2f)[it % 4] }
+        val dark = estimator.lux!!
+        var litAt = -1L
+        for (i in 0 until 600) {
+            estimator.add(lamp[i % lamp.size].toFloat(), t)
+            if (litAt < 0 && estimator.lux!! >= 2f) litAt = t
+            if (litAt >= 0) assertTrue("fell back to ${estimator.lux} at $t", estimator.lux!! >= 1.5f)
+            t += 200
+        }
+        assertTrue("dark room estimate $dark", dark < 1.5f)
+        assertTrue("never came up", litAt >= 0)
+    }
+
+    @Test fun theScreenGoesUpFasterThanDown() {
+        var up = 0.10f
+        repeat(25) { up = AmbientBrightness.glide(up, 0.90f, 40L) } // one second
+        var down = 0.90f
+        repeat(25) { down = AmbientBrightness.glide(down, 0.10f, 40L) }
+        assertEquals(0.10f + 180f / 255f, up, 0.01f)
+        assertEquals(0.90f - 60f / 255f, down, 0.01f)
+        assertTrue(up - 0.10f > 2.5f * (0.90f - down))
+    }
+
+    @Test fun theGlideNeverOvershootsAndArrivesAtTheTarget() {
         var shown = 0.10f
-        var last = shown
         repeat(100) {
             shown = AmbientBrightness.glide(shown, 0.40f, 40L)
-            assertTrue(shown >= last && shown <= 0.40f)
-            last = shown
+            assertTrue(shown <= 0.40f)
         }
         assertEquals(0.40f, shown, 0f)
-    }
-
-    @Test fun theGlideTakesAboutASecondForMostOfAMove() {
-        var shown = 0.10f
-        repeat(25) { shown = AmbientBrightness.glide(shown, 0.40f, 40L) } // one second
-        assertTrue("was $shown", shown > 0.35f && shown < 0.40f)
+        repeat(300) {
+            shown = AmbientBrightness.glide(shown, 0.20f, 40L)
+            assertTrue(shown >= 0.20f)
+        }
+        assertEquals(0.20f, shown, 0f)
     }
 
     @Test fun theGlideSnapsWhenWithinOneBacklightStep() {
@@ -113,7 +200,7 @@ class AmbientBrightnessTest {
 
     @Test fun theDiagnosticsLineShowsTheTableTheRoomTheScreenAndTheDaytimeSetting() {
         assertEquals(
-            "Ambient brightness: on; table device table, 5 points; room 78 lux now, 75 lux smoothed; screen 43% of a 55% daytime setting",
+            "Ambient brightness: on; table device table, 5 points; room 78 lux now, 75 lux estimated; screen 43% of a 55% daytime setting",
             AmbientBrightness.report(true, table, 78.4f, 75.2f, 0.43f, 55),
         )
     }
@@ -126,41 +213,22 @@ class AmbientBrightnessTest {
     }
 
     @Test fun aSmallWobbleInTheWantedLevelIsHeldAndARealChangeIsFollowed() {
-        val held = 10f / 255f
-        assertEquals(held, AmbientBrightness.settle(held, 11f / 255f), 0f)
-        assertEquals(held, AmbientBrightness.settle(held, 9f / 255f), 0f)
-        assertEquals(13f / 255f, AmbientBrightness.settle(held, 13f / 255f), 0f)
-        assertEquals(7f / 255f, AmbientBrightness.settle(held, 7f / 255f), 0f)
+        val held = 100f / 255f
+        assertEquals(held, AmbientBrightness.settle(held, 105f / 255f), 0f)
+        assertEquals(held, AmbientBrightness.settle(held, 85f / 255f), 0f)
+        assertEquals(111f / 255f, AmbientBrightness.settle(held, 111f / 255f), 0f)
+        assertEquals(79f / 255f, AmbientBrightness.settle(held, 79f / 255f), 0f)
     }
 
-    @Test fun theBandGrowsWithTheLevelSoABrightRoomIsNotStuckOnTinySteps() {
+    @Test fun theScreenBrightensOnTenPercentAndDarkensOnTwentyPercent() {
         val held = 100f / 255f
-        assertEquals(held, AmbientBrightness.settle(held, 110f / 255f), 0f)
-        assertEquals(120f / 255f, AmbientBrightness.settle(held, 120f / 255f), 0f)
+        assertEquals(held, AmbientBrightness.settle(held, 109f / 255f), 0f)
+        assertEquals(110.5f / 255f, AmbientBrightness.settle(held, 110.5f / 255f), 0f)
+        assertEquals(held, AmbientBrightness.settle(held, 81f / 255f), 0f)
+        assertEquals(79.5f / 255f, AmbientBrightness.settle(held, 79.5f / 255f), 0f)
     }
 
     @Test fun nothingHeldTakesTheWantedLevel() {
         assertEquals(0.3f, AmbientBrightness.settle(null, 0.3f), 0f)
-    }
-
-    @Test fun theNoisySensorOfADimRoomMovesTheScreenOnlyAFewTimes() {
-        // Whole-lux readings from a real sensor in a dim room (5 per second): 4 to 7 lux with a few outliers.
-        val readings = listOf(5, 6, 4, 5, 6, 5, 4, 6, 4, 6, 4, 6, 4, 5, 1, 7, 5, 6, 5, 6, 5, 4, 5, 4, 5, 6, 5, 7, 4, 7, 5,
-            2, 4, 6, 8, 5, 4, 7, 6, 7, 4, 6, 4, 5, 4, 5, 4, 6, 5, 6)
-        val smoother = AmbientBrightness.Smoother()
-        var held: Float? = null
-        var changesHeld = 0
-        var changesRaw = 0
-        var lastRaw: Float? = null
-        readings.forEachIndexed { i, lux ->
-            smoother.add(lux.toFloat(), i * 200L)
-            val wanted = AmbientBrightness.level(55, smoother.lux, true, table)
-            if (lastRaw != null && lastRaw != wanted) changesRaw++
-            lastRaw = wanted
-            val next = AmbientBrightness.settle(held, wanted)
-            if (held != null && held != next) changesHeld++
-            held = next
-        }
-        assertTrue("held $changesHeld, raw $changesRaw", changesHeld <= 3 && changesRaw > 3 * changesHeld.coerceAtLeast(1))
     }
 }
