@@ -5,7 +5,7 @@ enum class SlideMode { SINGLE, PAIR, COLLAGE }
 /** History stores catalog references, never decoded images. */
 data class FrameSlide(val photos: List<FramePhoto>, val mode: SlideMode = if (photos.size == 1) SlideMode.SINGLE else SlideMode.COLLAGE) {
     init {
-        require(photos.size in 1..4); require(photos.map { it.id }.distinct().size == photos.size)
+        require(photos.size in 1..CollageCadence.MAX_PHOTOS); require(photos.map { it.id }.distinct().size == photos.size)
         require(mode != SlideMode.SINGLE || photos.size == 1); require(mode != SlideMode.PAIR || photos.size == 2)
     }
     /** Curated collage only; pairs use the ordinary one-photo-per-interval cadence. */
@@ -22,10 +22,14 @@ class CollageCadence {
     fun reset() { singles=0 }
     companion object {
         /** The most photos a collage may have. Every collage aims for this many and settles for fewer when they do not tile. */
-        const val MAX_PHOTOS=4
+        const val MAX_PHOTOS=5
         const val MIN_PHOTOS=2
-        fun candidates(upcoming: List<FramePhoto>, previous: List<FramePhoto>, count: Int=4, ready: (FramePhoto)->Boolean): List<FramePhoto> {
-            require(count in 2..4)
+        /** The photo counts that have an arranged layout (see [CollageLayout.templates]); there is none for four. */
+        private val LAYOUT_SIZES=listOf(5,3,2)
+        /** The counts to try for a collage of up to [count] photos, the most first. */
+        fun layoutSizes(count: Int): List<Int> = LAYOUT_SIZES.filter { it <= count }
+        fun candidates(upcoming: List<FramePhoto>, previous: List<FramePhoto>, count: Int=MAX_PHOTOS, ready: (FramePhoto)->Boolean): List<FramePhoto> {
+            require(count in MIN_PHOTOS..MAX_PHOTOS)
             val avoid=previous.map { it.id }.toSet()
             val selected=upcoming.filterNot { it.id in avoid }.distinctBy { it.id }.take(count)
             return if(selected.size == count && selected.all(ready)) selected else emptyList()
@@ -35,14 +39,20 @@ class CollageCadence {
 
 /** Pixel geometry kept independent of Android for coverage and fit tests. */
 object CollageLayout {
-    /** Most of a photo a paired or collaged cell may lose to centre cropping. */
-    const val MAX_CROP = 0.30f
     /**
-     * White passe-partout between the photos of a multi-photo slide, shared rather than doubled, so two
-     * neighbouring pictures show one mount, not two. One pixel is about 0.25 mm on this 21.5-inch panel, so 28
-     * is roughly a 7 mm mount.
+     * Most of a photo a cell, a pair or the whole screen may lose to centre cropping: a photo is cropped to fill only
+     * when at least 75 percent of it stays visible, the cutoff the frame's original app uses. A thousandth is added so
+     * a 3:4 photo on a 9:16 screen, which loses exactly a quarter, is not turned away by rounding.
      */
-    const val MAT = 28
+    const val MAX_CROP = 0.251f
+    /**
+     * Passe-partout between the photos of a multi-photo slide, shared rather than doubled, so two neighbouring
+     * pictures show one mount, not two. One pixel is about 0.25 mm on this 21.5-inch panel, so 10 is roughly a 2.5 mm
+     * mount, the width the frame's original app uses.
+     */
+    const val MAT = 10
+    /** The mount's colour, a very light grey, the one the frame's original app uses. */
+    const val MAT_COLOR = 0xFFF4F5F7.toInt()
     /** Margin between the outermost photos and the edge of the screen: none, the photos run to the edge. */
     const val EDGE = 0
     data class Box(val left: Float,val top: Float,val right: Float,val bottom: Float) {
@@ -65,11 +75,48 @@ object CollageLayout {
         return (0 until columns*rows).map { i -> val x=edge+(i%columns)*(w+gap);val y=edge+(i/columns)*(h+gap);Box(x,y,x+w,y+h) }
     }
 
-    /** Every arrangement we will try for [count] photos: columns, rows, a grid, and single-plus-two shapes. */
+    /**
+     * The five-photo arrangement of the frame's original app, built for a portrait screen and turned on its side for a
+     * landscape one: a wide strip across one end, then two columns, small over large in one and large over small in
+     * the other, so the pictures interlock instead of lining up. The strip is 175/512 of the length. A small cell is
+     * 81/337 of its column in the original; here it is also a little taller (0.27 and 0.30 of the column), because a
+     * 4:3 photo, the commonest shape, loses a hair over a quarter in the original's small cell and a day's photos
+     * mostly share one shape. The strip can sit at either end and the columns either way round. That is 12 layouts.
+     * The slots come out about 16:9 (the strip and the two small cells) and 9:16 (the two large ones).
+     */
+    private fun pinwheel(width:Int,height:Int,gap:Int,edge:Int):List<List<Box>> {
+        val portrait=height>=width
+        val w=(if(portrait) width else height)-edge*2f;val h=(if(portrait) height else width)-edge*2f
+        val e=edge.toFloat()
+        val strip=(h-gap)*175f/512f;val rest=h-gap-strip
+        val column=(w-gap)/2f
+        val out=ArrayList<List<Box>>()
+        for(smallShare in SMALL_SHARES) {
+            val small=(rest-gap)*smallShare;val large=rest-gap-small
+            for(stripFirst in listOf(true,false)) for(smallFirstOnLeft in listOf(true,false)) {
+                val stripTop=if(stripFirst) e else e+rest+gap
+                val restTop=if(stripFirst) e+strip+gap else e
+                fun cells(x:Float,smallFirst:Boolean)=if(smallFirst) listOf(Box(x,restTop,x+column,restTop+small),Box(x,restTop+small+gap,x+column,restTop+rest))
+                    else listOf(Box(x,restTop,x+column,restTop+large),Box(x,restTop+large+gap,x+column,restTop+rest))
+                val boxes=listOf(Box(e,stripTop,e+w,stripTop+strip))+cells(e,smallFirstOnLeft)+cells(e+column+gap,!smallFirstOnLeft)
+                out+=if(portrait) boxes else boxes.map { Box(it.top,it.left,it.bottom,it.right) }
+            }
+        }
+        return out
+    }
+    /** A small cell's share of its column: the original app's 81/337, and two taller ones. */
+    private val SMALL_SHARES=listOf(81f/337f,0.27f,0.30f)
+
+    /**
+     * Every arrangement we will try for [count] photos. Two photos are a pair, laid out by [pair]. Three are one picture
+     * and two beside or below it, and five are the interlocking arrangement of [pinwheel]: the shapes of the frame's
+     * original app, not a grid. Four have only columns, rows and a grid, which playback no longer asks for.
+     */
     fun templates(width:Int,height:Int,count:Int,gap:Int=MAT,edge:Int=EDGE):List<List<Box>> {
-        require(count in 2..4 && gap>=0 && edge>=0 && width>gap*5+edge*2 && height>gap*5+edge*2)
+        require(count in 2..CollageCadence.MAX_PHOTOS && gap>=0 && edge>=0 && width>gap*5+edge*2 && height>gap*5+edge*2)
+        if(count==5) return pinwheel(width,height,gap,edge)
         val templates=ArrayList<List<Box>>()
-        templates+=stripes(width,height,count,1,gap,edge);templates+=stripes(width,height,1,count,gap,edge)
+        if(count!=3) { templates+=stripes(width,height,count,1,gap,edge);templates+=stripes(width,height,1,count,gap,edge) }
         if(count==4) templates+=cells(width,height,gap,edge)
         if(count==3) {
             val e=edge.toFloat()
@@ -89,7 +136,7 @@ object CollageLayout {
 
     /** Pick a template and ordering that maximize visible photo area without cropping. */
     fun arrange(width:Int,height:Int,sizes:List<Size>,gap:Int=MAT):List<Panel> {
-        require(sizes.size in 2..4)
+        require(sizes.size in 2..CollageCadence.MAX_PHOTOS)
         var best=emptyList<Panel>();var bestScore=-1f
         for(template in templates(width,height,sizes.size,gap)) for(order in permutations(sizes.indices.toList())) {
             val score=template.indices.sumOf { i -> val size=sizes[order[i]];val fitted=fit(size.width,size.height,template[i]);(fitted.width*fitted.height).toDouble() }.toFloat()
@@ -113,17 +160,35 @@ object CollageLayout {
      * which splits the halves proportionally so both lose the same share.
      */
     fun fill(width:Int,height:Int,sizes:List<Size>,gap:Int=MAT,maxCrop:Float=MAX_CROP):Fill? {
-        require(sizes.size in 2..4)
+        require(sizes.size in 2..CollageCadence.MAX_PHOTOS)
         if(sizes.size==2) {
             val layout=pair(width,height,sizes[0],sizes[1],height>width,gap)
             return if(layout.crop<=maxCrop) Fill(layout.boxes.mapIndexed { i,box -> Panel(i,box) },layout.crop) else null
         }
-        var best=emptyList<Panel>();var bestCrop=Float.MAX_VALUE
-        for(template in templates(width,height,sizes.size,gap)) for(order in permutations(sizes.indices.toList())) {
-            val worst=template.indices.maxOf { i -> crop(template[i],sizes[order[i]]) }
-            if(worst<bestCrop-0.001f) { bestCrop=worst;best=template.mapIndexed { i,box -> Panel(order[i],box) } }
+        // Photos of one shape are interchangeable, so the search places shapes, not photos, and the photos of a shape
+        // are handed out in order afterwards. Each template is searched slot by slot and a partial arrangement is dropped
+        // as soon as one of its cells is already no better than the best so far (or over the limit): five photos
+        // against twelve layouts would otherwise try 1,440 orders, which is slow on the frame.
+        val shapes=sizes.distinct()
+        val photosOfShape=shapes.map { s -> sizes.indices.filter { sizes[it] == s } }
+        val remaining=IntArray(shapes.size) { photosOfShape[it].size }
+        val chosen=IntArray(sizes.size)
+        var bestShapes:IntArray?=null;var bestTemplate=emptyList<Box>();var bestCrop=Float.MAX_VALUE
+        for(template in templates(width,height,sizes.size,gap)) {
+            fun place(slot:Int,worst:Float) {
+                if(worst>maxCrop || worst>=bestCrop-0.001f) return
+                if(slot==template.size) { bestCrop=worst;bestShapes=chosen.copyOf();bestTemplate=template;return }
+                for(s in shapes.indices) if(remaining[s]>0) {
+                    remaining[s]--;chosen[slot]=s
+                    place(slot+1,maxOf(worst,crop(template[slot],shapes[s])))
+                    remaining[s]++
+                }
+            }
+            place(0,0f)
         }
-        return if(bestCrop<=maxCrop) Fill(best,bestCrop) else null
+        val picked=bestShapes ?: return null
+        val used=IntArray(shapes.size)
+        return Fill(bestTemplate.mapIndexed { i,box -> Panel(photosOfShape[picked[i]][used[picked[i]]++],box) },bestCrop)
     }
 
     /** Longest pixel edge needed to draw this photo into a cell, allowing for the crop when it covers. */

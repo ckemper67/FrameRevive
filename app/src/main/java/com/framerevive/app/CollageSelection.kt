@@ -14,7 +14,7 @@ object CollageSelection {
                usable: (FramePhoto) -> Boolean, avoid: Set<String>, maxCrop: Float = CollageLayout.MAX_CROP,
                hashes: Map<String, Long> = emptyMap(), lookahead: Int = LOOKAHEAD): List<FramePhoto> {
         val pool = upcoming.asSequence().filter { it.id !in avoid }.take(lookahead).filter { usable(it) }.toList()
-        for (n in count.coerceIn(2, 4) downTo 2) {
+        for (n in CollageCadence.layoutSizes(count.coerceIn(CollageCadence.MIN_PHOTOS, CollageCadence.MAX_PHOTOS))) {
             if (pool.size < n) continue
             best(n, width, height, pool, size, maxCrop, hashes)?.let { return it }
             // Every arrangement wanted the same shot twice: allow the repeats rather than show nothing.

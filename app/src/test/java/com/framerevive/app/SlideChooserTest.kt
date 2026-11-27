@@ -324,7 +324,7 @@ class SlideChooserTest {
     }
 
     @Test fun aPortraitPhotoThatFillsTheFrameIsShownAloneEvenIfItIsNotTheFramesExactShape() {
-        val playlist = listOf(sized("T1", 1600, 2000), port("P1"))   // 4:5 loses 29 percent filling a 9:16 frame
+        val playlist = listOf(sized("T1", 1500, 2000), port("P1"))   // 3:4 loses a quarter filling a 9:16 frame, the most allowed
         assertEquals("T1", chooser(playlist).next(portraitFrame(playlist), null)!!.photos.single().id)
     }
 

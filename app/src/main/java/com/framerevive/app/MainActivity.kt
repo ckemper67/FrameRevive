@@ -1496,7 +1496,7 @@ class MainActivity : Activity() {
                                 if(!active || closed || sleeping) return@post
                                 val ctx=slideContext()
                                 val plan=chooser.previewCollage(ctx,count)
-                                if(plan.photos.size in 2..4) {
+                                if(plan.photos.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) {
                                     handler.removeCallbacks(advance)
                                     showSlide(FrameSlide(plan.photos),fromHistory=true)
                                     prefs.edit().putString("previewNote", plan.notes.joinToString("; ") + " -> ${plan.themeId} ${plan.photos.size}").apply()

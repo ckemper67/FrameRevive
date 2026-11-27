@@ -22,7 +22,9 @@ class FrameFillTest {
     @Test fun theLimitIsTheSameAsForAPairOrACollageTile() {
         assertEquals(CollageLayout.MAX_CROP, FrameFill.MAX_CROP)
         assertTrue("a square photo loses 44 percent, which is over the limit", !FrameFill.fills(1000, 1000, 1080, 1920))
-        assertTrue("4:5 loses 29 percent, which is within it", FrameFill.fills(1600, 2000, 1080, 1920))
+        assertTrue("4:5 loses 30 percent, which is over it", !FrameFill.fills(1600, 2000, 1080, 1920))
+        assertTrue("3:4 loses exactly a quarter, which is within it", FrameFill.fills(3000, 4000, 1080, 1920))
+        assertTrue("2:3 loses 16 percent, which is within it", FrameFill.fills(2000, 3000, 1080, 1920))
     }
 
     @Test fun anUnknownSizeIsNeverCropped() {

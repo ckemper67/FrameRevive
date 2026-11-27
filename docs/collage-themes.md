@@ -174,5 +174,5 @@ Compare with today's same-day collage (about 135 minutes median span, 41% mixing
    the wanted count is tried against the layouts (columns, rows, grid, L-shapes for three), rejecting near-identical
    pairs by hash and any arrangement that crops a photo by more than 30%; the least-cropped wins; a smaller count is
    tried before a letterboxed layout.
-4. **Draw:** a 28 px white mat between photos and none at the edge; each picture carries its own date.
+4. **Draw:** a 10 px mat in the original app's light grey (`#F4F5F7`) between photos and none at the edge; each picture carries its own date.
 5. **After:** the photos count as shown and leave the round; the date is remembered so the next collage differs.

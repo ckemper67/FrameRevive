@@ -28,7 +28,7 @@ object CollageThemeSelection {
      */
     fun rankedDays(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
                    avoidDays: Set<LocalDate> = emptySet(), seen: Map<String, PlayRecord> = emptyMap(), minCount: Int = count): List<AlbumDay> {
-        require(count in 2..4 && minCount in 2..count)
+        require(count in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS && minCount in CollageCadence.MIN_PHOTOS..count)
         val groups = HashMap<Long, ArrayList<FramePhoto>>()
         for (p in album) {
             if (!p.dated || p.id in avoid) continue
@@ -54,7 +54,7 @@ object CollageThemeSelection {
     fun bestDay(album: List<FramePhoto>, count: Int, cached: Set<String>, avoid: Set<String> = emptySet(),
                 avoidDays: Set<LocalDate> = emptySet(), limit: Int = MAX_CANDIDATES,
                 seen: Map<String, PlayRecord> = emptyMap()): List<FramePhoto> {
-        require(count in 2..4 && limit in count..MAX_CANDIDATES)
+        require(count in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS && limit in count..MAX_CANDIDATES)
         val day = rankedDays(album, count, cached, avoid, avoidDays, seen).firstOrNull() ?: return emptyList()
         val (ready, other) = day.photos.sortedBy { seen[it.id]?.lastShownMs ?: -1L }.partition { it.id in cached }
         return (ready + other).take(limit)

@@ -36,10 +36,11 @@ class PairTest {
         assertTrue(layout.crop in 0.23f..0.25f)
     }
     @Test fun mixedAspectsShareOneCropAndOneZoom() {
-        val layout=CollageLayout.pair(1080,1920,fourByThree,wide,portrait=true)
+        val layout=CollageLayout.pair(1080,1920,fourByThree,landscape,portrait=true)
         val first=layout.boxes[0];val second=layout.boxes[1]
         assertEquals(first.width,second.width,0.01f)
-        assertEquals(0.75f,second.height/first.height,0.001f)
+        // Heights follow the photos' own shapes: 2:3 over 3:4.
+        assertEquals((2f/3f)/(3f/4f),second.height/first.height,0.001f)
         assertTrue(layout.crop>0f && layout.crop<=PairSelection.MAX_CROP)
     }
     @Test fun cropGrowsWithTheAspectMismatch() {

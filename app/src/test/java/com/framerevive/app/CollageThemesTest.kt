@@ -10,6 +10,9 @@ class CollageThemesTest {
     private val dayMs = 86_400_000L
     private val minute = 60_000L
     private val landscape = CollageLayout.Size(1200, 800)
+    private val portrait = CollageLayout.Size(800, 1200)
+    /** Every other photo is a portrait: a landscape frame needs a mix of shapes, and a day's photos have one. */
+    private val mixedShapes: (FramePhoto) -> CollageLayout.Size = { if (it.id.last().digitToInt() % 2 == 0) landscape else portrait }
 
     private fun at(id: String, day: Int, minuteOfDay: Int) = FramePhoto(id, "u$id", (20_000L + day) * dayMs + minuteOfDay * minute)
 
@@ -17,8 +20,9 @@ class CollageThemesTest {
     private fun run(prefix: String, day: Int, from: Int, step: Int, count: Int) = (0 until count).map { at("$prefix$it", day, from + it * step) }
 
     private fun context(photos: List<FramePhoto>, themes: Set<String>, cached: Set<String> = photos.map { it.id }.toSet(),
-                        seen: Map<String, PlayRecord> = emptyMap()) =
-        SlideContext(photos, cached, { it.id in cached }, { landscape }, { true }, emptyMap(), 1920, 1080, true, 5, themes, false, seen)
+                        seen: Map<String, PlayRecord> = emptyMap(), size: (FramePhoto) -> CollageLayout.Size = { landscape },
+                        pairs: Boolean = false) =
+        SlideContext(photos, cached, { it.id in cached }, size, { true }, emptyMap(), 1920, 1080, true, 5, themes, pairs, seen)
 
     private fun chooser(playlist: List<FramePhoto>) = SlideChooser(Random(1)).apply { load(playlist, playlist.map { it.id }.toSet()) }
     private fun SlideChooser.showSingles(n: Int) = repeat(n) { cadence.displayed(false) }
@@ -138,18 +142,50 @@ class CollageThemesTest {
     private fun threeDays() = run("a", 1, 9 * 60, 12, 6) + run("b", 2, 9 * 60, 12, 6) + run("c", 3, 9 * 60, 12, 6)
 
     @Test fun enabledThemesTakeTurns() {
-        val album = threeDays()
+        // Four collages of five photos need more than three days of six.
+        val album = run("a", 1, 9 * 60, 12, 12) + run("b", 2, 9 * 60, 12, 12) + run("c", 3, 9 * 60, 12, 12)
         val chooser = chooser(album + (0 until 40).map { at("q$it", 50 + it, 600) })
         val seen = ArrayList<String>()
         repeat(4) {
             chooser.showSingles(5)
-            val slide = chooser.next(context(album, setOf("day", "outing")), null)!!
-            assertEquals(SlideMode.COLLAGE, slide.mode)
+            val slide = chooser.next(context(album, setOf("day", "outing"), size = mixedShapes), null)!!
+            assertEquals("round $it after $seen: ${slide.photos.map { p -> p.id }}", SlideMode.COLLAGE, slide.mode)
             seen += chooser.lastCollageTheme!!
             chooser.cadence.displayed(true)
             chooser.claim(slide.photos.map { it.id }, HashMap(), 1L)
         }
         assertEquals(listOf("day", "outing", "day", "outing"), seen)
+    }
+
+    @Test fun repeatedPreviewsMoveThroughDifferentDaysInsteadOfTwoTakingTurns() {
+        val album = run("a", 1, 9 * 60, 12, 12) + run("b", 2, 9 * 60, 12, 12) + run("c", 3, 9 * 60, 12, 12) + run("d", 4, 9 * 60, 12, 12)
+        val chooser = chooser(album)
+        val days = (0 until 4).map {
+            chooser.previewCollage(context(album, setOf("day"), size = mixedShapes), 5).photos.first().id.first()
+        }
+        // The preview records no plays, so without a memory of its own the best two days would alternate.
+        assertEquals("each preview shows a day not seen in the last few: $days", days.size, days.distinct().size)
+    }
+
+    @Test fun aPreviewWidensToTheDaysAroundWhenTheDayLacksTheShapes() {
+        // One day of landscapes only; four days later a few portraits. A five needs both, so the preview has to look wider.
+        val album = run("a", 1, 9 * 60, 12, 8) + run("b", 5, 9 * 60, 12, 4)
+        val shapes: (FramePhoto) -> CollageLayout.Size = { if (it.id.startsWith("b")) portrait else landscape }
+        val preview = chooser(album).previewCollage(context(album, setOf("day"), size = shapes, pairs = true), 5)
+        assertEquals("notes: ${preview.notes}", 5, preview.photos.size)
+        assertTrue("photos ${preview.photos.map { it.id }}", preview.photos.any { it.id.startsWith("b") })
+        assertTrue("noted the widening: ${preview.notes}", preview.notes.any { it.contains("within 7 days") })
+    }
+
+    @Test fun playbackDoesNotWidenToTheDaysAround() {
+        val album = run("a", 1, 9 * 60, 12, 8) + run("b", 5, 9 * 60, 12, 4)
+        val shapes: (FramePhoto) -> CollageLayout.Size = { if (it.id.startsWith("b")) portrait else landscape }
+        val chooser = chooser(album + (0 until 40).map { at("q$it", 50 + it, 600) })
+        chooser.showSingles(5)
+        val slide = chooser.next(context(album, setOf("day"), size = shapes, pairs = true), null)!!
+        // With the screen to be filled, the day's landscapes alone make no collage on this frame, and playback does not look
+        // at the days around it: the collage is skipped and a single photo is shown.
+        assertEquals(SlideMode.SINGLE, slide.mode)
     }
 
     @Test fun aSingleEnabledThemeIsUsedEveryTime() {

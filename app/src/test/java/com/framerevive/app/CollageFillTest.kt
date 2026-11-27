@@ -17,16 +17,70 @@ class CollageFillTest {
         assertEquals(0f,CollageLayout.crop(CollageLayout.Box(0f,0f,1200f,800f),landscape),0.0001f)
         assertTrue(CollageLayout.crop(CollageLayout.Box(0f,0f,528f,948f),landscape)>0.6f)
     }
-    @Test fun threeLandscapesStackIntoRowsOnAPortraitFrame() {
-        val fill=CollageLayout.fill(1080,1920,List(3) { landscape })
+    @Test fun threePicturesAreOneWideAndTwoTallOnAPortraitFrame() {
+        val fill=CollageLayout.fill(1080,1920,listOf(landscape,portrait,portrait))
         assertNotNull(fill)
         val panels=fill!!.panels
         assertEquals(3,panels.size)
-        assertEquals(1,panels.map { it.box.left }.distinct().size)
-        assertEquals(3,panels.map { it.box.top }.distinct().size)
-        assertEquals(1080f-panels[0].box.width,panels[0].box.left*2,0.01f)
-        for(panel in panels) assertEquals(CollageLayout.crop(panel.box,landscape),fill.crop,0.0001f)
-        assertTrue(fill.crop in 0.05f..0.20f)
+        // One picture across the whole width, the other two side by side in the other half.
+        val wide=panels.single { it.box.width>1000f }
+        assertEquals(wide.photo,0)
+        val tall=panels.filter { it !== wide }
+        assertEquals(1,tall.map { it.box.top }.distinct().size)
+        assertEquals(2,tall.map { it.box.left }.distinct().size)
+        assertTrue(fill.crop<=CollageLayout.MAX_CROP)
+    }
+    @Test fun threeLandscapesNoLongerStackIntoRows() {
+        // The frame's original app has no stack of three: its three-picture layout is one and two, and the two
+        // beside each other are tall, so three landscapes do not tile and are paired instead.
+        assertNull(CollageLayout.fill(1080,1920,List(3) { landscape }))
+    }
+    @Test fun fivePicturesInterlockOnAPortraitFrame() {
+        val fill=CollageLayout.fill(1080,1920,listOf(landscape,landscape,landscape,portrait,portrait))
+        assertNotNull(fill)
+        val panels=fill!!.panels
+        assertEquals(5,panels.size)
+        assertEquals((0 until 5).toSet(),panels.map { it.photo }.toSet())
+        // Three wide slots (the strip and the two small cells) take the landscapes, two tall slots the portraits.
+        val tall=panels.filter { it.box.height>it.box.width }
+        assertEquals(2,tall.size)
+        assertTrue(tall.all { it.photo>=3 })
+        // The strip spans the screen and nothing lines up in a grid: the two columns' rows are offset.
+        assertEquals(1,panels.count { it.box.width>1000f })
+        assertTrue(panels.map { it.box.top }.distinct().size>=4)
+        assertTrue(fill.crop<=CollageLayout.MAX_CROP)
+    }
+    @Test fun fivePicturesTurnOnTheirSideOnALandscapeFrame() {
+        val fill=CollageLayout.fill(1920,1080,listOf(portrait,portrait,portrait,landscape,landscape))
+        assertNotNull(fill)
+        val panels=fill!!.panels
+        assertEquals(5,panels.size)
+        // The strip is now a column that spans the full height.
+        assertEquals(1,panels.count { it.box.height>1000f })
+        assertTrue(fill.crop<=CollageLayout.MAX_CROP)
+    }
+    @Test fun fiveFromOneCameraFitBecauseTheSmallCellsCanBeTaller() {
+        // 4:3 landscapes in the original app's small cells lose 25.3 percent, a hair over the limit; a taller small
+        // cell keeps them within it. A day's photos mostly come from one camera, so this is the common case.
+        val fourByThreeTall=CollageLayout.Size(900,1200)
+        val fill=CollageLayout.fill(1080,1920,listOf(fourByThree,fourByThree,fourByThree,fourByThreeTall,fourByThreeTall))
+        assertNotNull(fill)
+        assertTrue(fill!!.crop<=CollageLayout.MAX_CROP)
+    }
+    @Test fun fillTimeStaysSmallForTheLargestSearch() {
+        // Five different shapes try every layout in every order. This is the most work one fit does; the frame is far
+        // slower than the machine running the tests, so the budget is tight.
+        val shapes=listOf(CollageLayout.Size(1200,900),CollageLayout.Size(1500,1000),CollageLayout.Size(1920,1080),CollageLayout.Size(900,1200),CollageLayout.Size(1000,1500))
+        CollageLayout.fill(1080,1920,shapes)   // warm up the JIT
+        val start=System.nanoTime()
+        repeat(20) { CollageLayout.fill(1080,1920,shapes) }
+        val millis=(System.nanoTime()-start)/20/1_000_000.0
+        println("one five-photo fit: %.2f ms".format(millis))
+        assertTrue("one fit took $millis ms",millis<1.0)
+    }
+    @Test fun fivePicturesOfOneShapeDoNotFit() {
+        assertNull(CollageLayout.fill(1080,1920,List(5) { landscape }))
+        assertNull(CollageLayout.fill(1080,1920,List(5) { portrait }))
     }
     @Test fun fourPortraitsUseTheGridOnAPortraitFrame() {
         val fill=CollageLayout.fill(1080,1920,List(4) { portrait })
@@ -41,13 +95,14 @@ class CollageFillTest {
         assertNull(CollageLayout.fill(1080,1920,List(4) { landscape }))
         assertNull(CollageLayout.fill(1080,1920,List(3) { portrait }))
         assertNotNull(CollageLayout.fill(1920,1080,List(4) { landscape }))
-        assertNotNull(CollageLayout.fill(1920,1080,List(3) { portrait }))
+        // Three portraits used to run as columns on a landscape frame; one and two leaves the pair tall in wide slots.
+        assertNull(CollageLayout.fill(1920,1080,List(3) { portrait }))
     }
     @Test fun twoPhotosReuseThePairSplitSoBothLoseTheSameShare() {
-        val fill=CollageLayout.fill(1080,1920,listOf(fourByThree,wide))
+        val fill=CollageLayout.fill(1080,1920,listOf(fourByThree,landscape))
         assertNotNull(fill)
-        assertEquals(CollageLayout.pair(1080,1920,fourByThree,wide,true).crop,fill!!.crop,0.0001f)
-        assertTrue(fill.crop<0.30f)
+        assertEquals(CollageLayout.pair(1080,1920,fourByThree,landscape,true).crop,fill!!.crop,0.0001f)
+        assertTrue(fill.crop<=CollageLayout.MAX_CROP)
         assertNull(CollageLayout.fill(1080,1920,listOf(wide,wide)))
     }
     @Test fun decodeEdgeCoversTheCroppedCellButNotTheWholePanel() {
@@ -59,11 +114,16 @@ class CollageFillTest {
     @Test fun selectionPicksTheCountThatFits() {
         val ready=(1..6).map { photo(it) }
         val sizes=ready.associate { it.id to landscape }
-        val four=CollageSelection.choose(4,1080,1920,ready,{ sizes[it.id] },{ true },emptySet())
-        assertEquals(3,four.size)
+        // Landscapes alone make no collage of three or five on a portrait frame, but they pair up.
+        assertEquals(2,CollageSelection.choose(5,1080,1920,ready,{ sizes[it.id] },{ true },emptySet()).size)
+        // Three landscapes and two portraits among the candidates are the five the interlocking layout wants.
+        val mixed=(1..6).map { photo(it) }
+        val mixedSizes=mixed.associate { it.id to if (it.id.toInt() <= 3) landscape else portrait }
+        assertEquals(5,CollageSelection.choose(5,1080,1920,mixed,{ mixedSizes[it.id] },{ true },emptySet()).size)
+        // Portraits already fill a portrait frame, so they make no collage there; on a landscape frame they pair.
         val portraits=(1..6).map { photo(it) }
         val portraitSizes=portraits.associate { it.id to portrait }
-        assertEquals(4,CollageSelection.choose(4,1080,1920,portraits,{ portraitSizes[it.id] },{ true },emptySet()).size)
+        assertTrue(CollageSelection.choose(5,1080,1920,portraits,{ portraitSizes[it.id] },{ true },emptySet()).isEmpty())
         assertEquals(2,CollageSelection.choose(2,1920,1080,portraits,{ portraitSizes[it.id] },{ true },emptySet()).size)
     }
     @Test fun selectionSkipsPhotosOnScreenUnreadyOrOffFrameAndGivesUpWhenNothingFits() {

@@ -15,8 +15,8 @@ More themes are proposed in `collage-themes.md`.
 
 ## What a collage is made of
 
-1. **When:** after every 20 single slides (setting 5 to 100). Every collage aims for four photos and settles for three or
-   two when four do not tile the frame; the count is not chosen ahead of time.
+1. **When:** after every 20 single slides (setting 5 to 100). Every collage aims for five photos and settles for three or
+   two when five do not tile the frame; the count is not chosen ahead of time.
 2. **Which day:** days with at least the wanted number of dated photos are ranked: a day whose photos are already
    downloaded first, then the day with the most photos not shown yet, then the one shown longest ago, then the bigger
    and the newer. The previous collage's date is skipped when another qualifies. Days are the photo's own local
@@ -24,9 +24,10 @@ More themes are proposed in `collage-themes.md`.
 3. **Candidates:** the theme offers 8 to 12 photos, not yet shown first, spread through time, and never two
    within two minutes of each other, so a collage does not show frames of one instant. The first few are queued for
    download as soon as the collage is nearly due, so playback keeps moving until they arrive.
-4. **Fit:** from the first 10 usable candidates (downloaded, not blurry, not in the previous slide), four photos are
-   tried against the layouts (columns, rows, a grid, L-shapes for three), rejecting near-identical pairs by hash and any
-   arrangement that crops a photo by more than 30%; the least-cropped wins. If four do not tile, three are tried, then
+4. **Fit:** from the first 10 usable candidates (downloaded, not blurry, not in the previous slide), five photos are
+   tried against the layouts (the interlocking arrangement for five, one and two for three, a proportional split for two),
+   rejecting near-identical pairs by hash and any arrangement that crops a photo by more than a quarter (75 percent stays
+   visible, as in the frame's original app); the least-cropped wins. If five do not tile, three are tried, then
    two, and the letterboxed layout (as many candidates as there are, shown whole) is the last resort. The layout depends
    only on the photos' aspect ratios, so photos are grouped by aspect and each distinct set is fitted once, which keeps
    a pool of 10 cheap. All ten are queued for download two slides before the collage is due.

@@ -69,7 +69,7 @@ class PairPresentation : Presentation {
 class CollagePreview(val photos: List<FramePhoto>, val themeId: String?, val notes: List<String>)
 
 /**
- * Two to four photos tiled to cover the frame. The enabled themes take turns, so consecutive collages differ; each
+ * Two, three or five photos tiled to cover the frame. The enabled themes take turns, so consecutive collages differ; each
  * offers candidate photos and the shape fitting picks the combination that crops least. The next collage's photos
  * are chosen before it falls due so they can be downloaded, and when a theme has nothing that fits, the next one in
  * turn is tried before the collage is given up.
@@ -105,8 +105,9 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
      * than two. When nothing tiles, the first candidates are shown whole on a blurred background, again as many as there
      * are.
      */
-    private fun fit(ctx: SlideContext, pool: List<FramePhoto>, count: Int, avoid: Set<String>, last: FrameSlide?): List<FramePhoto> {
-        val fitting = CollageSelection.choose(count, ctx.width, ctx.height, pool, ctx.size, ctx.usableForCollage, avoid, hashes = ctx.hashes)
+    private fun fit(ctx: SlideContext, pool: List<FramePhoto>, count: Int, avoid: Set<String>, last: FrameSlide?,
+                    lookahead: Int = CollageSelection.LOOKAHEAD): List<FramePhoto> {
+        val fitting = CollageSelection.choose(count, ctx.width, ctx.height, pool, ctx.size, ctx.usableForCollage, avoid, hashes = ctx.hashes, lookahead = lookahead)
         if (fitting.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) return fitting
         // With the screen to be filled there is no letterboxed fallback: when nothing tiles, the collage is skipped.
         if (ctx.strict) return emptyList()
@@ -127,7 +128,7 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
         for (theme in themes) if (theme !== planTheme) attempts += theme to theme.candidates(ctx, queue, count, avoid, lastDay)
         for ((theme, pool) in attempts) {
             val selected = fit(ctx, pool, count, avoid, last)
-            if (selected.size in 2..4) { proposedTheme = theme; return selected }
+            if (selected.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) { proposedTheme = theme; return selected }
         }
         skipped++
         return null
@@ -170,22 +171,52 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     fun preview(ctx: SlideContext, queue: SlideQueue, count: Int): CollagePreview {
         val notes = mutableListOf<String>()
         for (theme in inTurn(ctx)) {
-            val all = theme.candidates(ctx, queue, count, emptySet(), lastDay)
+            val all = theme.candidates(ctx, queue, count, previewed, lastDay)
             val ready = all.filter { it.id in ctx.cachedIds }
-            val fitting = fit(ctx, ready, count, emptySet(), null)
+            var fitting = fit(ctx, ready, count, emptySet(), null)
             notes += "${theme.id} pool=${all.size} cached=${ready.size} fitted=${fitting.size}"
-            if (fitting.size in 2..4) {
+            // Only the preview widens: when the occasion's own photos do not make a full collage, look at the days around it,
+            // a day, a week, two weeks either side, and keep the first window that does. Playback does not do this.
+            if (fitting.size < count && ready.size >= CollageCadence.MIN_PHOTOS) {
+                val anchor = ready.first().date()
+                for (days in PREVIEW_WIDENING) {
+                    val wide = widenedPool(ctx, anchor, days)
+                    val wider = fit(ctx, wide, count, emptySet(), null, lookahead = wide.size)
+                    notes += "${theme.id} within $days days: pool=${wide.size} fitted=${wider.size}"
+                    if (wider.size > fitting.size) fitting = wider
+                    if (fitting.size >= count) break
+                }
+            }
+            if (fitting.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) {
                 lastThemeId = theme.id; lastDay = fitting.first().date()
                 turn = CollageThemes.all.indexOf(theme) + 1
+                // Remember what was shown, so the next preview moves on to other photos and days. Playback records its
+                // plays; a preview does not, and without this the two best days would take turns for ever.
+                previewed += fitting.map { it.id }
+                while (previewed.size > PREVIEW_MEMORY) previewed.remove(previewed.first())
                 return CollagePreview(fitting, theme.id, notes)
             }
         }
+        // Everything near the top has been previewed lately: start over rather than show nothing.
+        if (previewed.isNotEmpty()) { previewed.clear(); return preview(ctx, queue, count) }
         return CollagePreview(emptyList(), null, notes)
     }
 
+    /** The downloaded photos from the days within [days] of [anchor], nearest first, for a preview. */
+    private fun widenedPool(ctx: SlideContext, anchor: LocalDate, days: Int): List<FramePhoto> {
+        val centre = anchor.toEpochDay()
+        return ctx.photos.filter { it.dated && it.id in ctx.cachedIds && it.id !in previewed && kotlin.math.abs(it.date().toEpochDay() - centre) <= days }
+            .sortedBy { kotlin.math.abs(it.date().toEpochDay() - centre) }
+    }
+    private val PREVIEW_WIDENING = listOf(1, 7, 14)
+
+    /** The photos of the last few previews (about a dozen collages), which a preview avoids. */
+    private val previewed = LinkedHashSet<String>()
+    private val PREVIEW_MEMORY = 60
+
     /** Photos worth downloading so a preview that found nothing ready can succeed on a later try. */
     fun previewPool(ctx: SlideContext, queue: SlideQueue, count: Int): List<FramePhoto> =
-        inTurn(ctx).firstNotNullOfOrNull { theme -> theme.candidates(ctx, queue, count, emptySet(), lastDay).takeIf { it.isNotEmpty() } }.orEmpty().take(6)
+        inTurn(ctx).firstNotNullOfOrNull { theme -> theme.candidates(ctx, queue, count, previewed, lastDay).takeIf { it.isNotEmpty() } }.orEmpty().take(6)
 
     /** The catalog changed, so candidates chosen from the old one are stale. */
     fun forgetPlan() { plan = emptyList(); planTheme = null }

@@ -12,10 +12,10 @@ class CollageTest {
         repeat(8) { c.displayed(false) };assertTrue(c.due(20))
         c.displayed(true);assertFalse(c.due(20));assertEquals(0,c.singles)
     }
-    @Test fun collageWaitsForAllFourAndAvoidsRepeatedCurrentPhoto() {
+    @Test fun collageWaitsForAllFiveAndAvoidsRepeatedCurrentPhoto() {
         val list=(1..6).map { photo(it) }
         assertTrue(CollageCadence.candidates(list,listOf(photo(1))) { it.id != "4" }.isEmpty())
-        assertEquals(listOf("2","3","4","5"),CollageCadence.candidates(list,listOf(photo(1))) { true }.map { it.id })
+        assertEquals(listOf("2","3","4","5","6"),CollageCadence.candidates(list,listOf(photo(1))) { true }.map { it.id })
         assertTrue(CollageCadence.candidates(listOf(photo(1),photo(1),photo(2),photo(3)),emptyList()) { true }.isEmpty())
     }
     @Test fun cellsHaveGuttersAndFitKeepsEveryEdgeVisible() {
@@ -41,14 +41,14 @@ class CollageTest {
     }
     @Test fun collageSizesCycleOnlyAfterSuccessfulAutomaticCollages() {
         val c=CollageCadence()
-        assertEquals("a collage aims for the most photos every time",4,CollageCadence.MAX_PHOTOS)
+        assertEquals("a collage aims for the most photos every time",5,CollageCadence.MAX_PHOTOS)
         assertEquals(2,CollageCadence.MIN_PHOTOS)
         repeat(20) { c.displayed(false) };assertEquals(20,c.singles)
         c.displayed(true);assertEquals(0,c.singles)
         repeat(5) { c.displayed(false) };c.reset();assertEquals(0,c.singles)
     }
     @Test fun candidatesRequireExactlyTheRequestedNumberReady() {
-        for(count in 2..4) {
+        for(count in 2..5) {
             assertEquals(count,CollageCadence.candidates((1..8).map { photo(it) },emptyList(),count) { true }.size)
             assertTrue(CollageCadence.candidates((1..8).map { photo(it) },emptyList(),count) { it.id != count.toString() }.isEmpty())
             assertTrue(FrameSlide((1..count).map { photo(it) }).collage)
