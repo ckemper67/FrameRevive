@@ -110,6 +110,23 @@ object CollageThemes {
         }
     }
 
-    val all: List<CollageTheme> = listOf(DAY, OUTING)
+    /**
+     * The same date in earlier years: the best day (not yet shown first, then the one with most photos) among the days
+     * within the memory window of today's date in a past year, so a birthday or a holiday, even a moving one, comes back as
+     * a collage. The planner then looks at the days around it like any other occasion.
+     */
+    val ANNIVERSARY = object : CollageTheme {
+        override val id = "anniversary"
+        override val label = "On this day"
+        override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
+            val memories = CollageThemeSelection.onThisDay(ctx.photos, ctx.today, ctx.memoryDays)
+            val day = CollageThemeSelection.rankedDays(memories, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
+                minCount = CollageCadence.MIN_PHOTOS).firstOrNull() ?: return emptyList()
+            return TimeSpread.separated(ordered(day.photos, ctx.seen, CollageThemeSelection.MAX_CANDIDATES * 3), CollageCadence.MIN_PHOTOS)
+                .take(CollageThemeSelection.MAX_CANDIDATES)
+        }
+    }
+
+    val all: List<CollageTheme> = listOf(DAY, OUTING, ANNIVERSARY)
     fun byId(id: String): CollageTheme? = all.firstOrNull { it.id == id }
 }

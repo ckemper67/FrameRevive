@@ -21,8 +21,12 @@ class CollageThemesTest {
 
     private fun context(photos: List<FramePhoto>, themes: Set<String>, cached: Set<String> = photos.map { it.id }.toSet(),
                         seen: Map<String, PlayRecord> = emptyMap(), size: (FramePhoto) -> CollageLayout.Size = { landscape },
-                        pairs: Boolean = false) =
-        SlideContext(photos, cached, { it.id in cached }, size, { true }, emptyMap(), 1920, 1080, true, 5, themes, pairs, seen)
+                        pairs: Boolean = false, today: java.time.LocalDate = java.time.LocalDate.of(2026, 6, 15), memoryDays: Int = 7) =
+        SlideContext(photos, cached, { it.id in cached }, size, { true }, emptyMap(), 1920, 1080, true, 5, themes, pairs, seen,
+            today = today, memoryDays = memoryDays)
+
+    private fun onDate(id: String, date: java.time.LocalDate, minuteOfDay: Int = 600) = FramePhoto(id, "u$id", date.toEpochDay() * dayMs + minuteOfDay * minute)
+    private fun dayOf(prefix: String, date: java.time.LocalDate, count: Int, step: Int = 12) = (0 until count).map { onDate("$prefix$it", date, 540 + it * step) }
 
     private fun chooser(playlist: List<FramePhoto>) = SlideChooser(Random(1)).apply { load(playlist, playlist.map { it.id }.toSet()) }
     private fun SlideChooser.showSingles(n: Int) = repeat(n) { cadence.displayed(false) }
@@ -227,6 +231,57 @@ class CollageThemesTest {
         val millis = (System.nanoTime() - start) / 5 / 1_000_000.0
         println("pools over 15,000 photos: %.2f ms".format(millis))
         assertTrue("took $millis ms", millis < 10.0)
+    }
+
+    // ---- On this day ----
+
+    @Test fun onThisDayKeepsEarlierYearsWithinTheWindowAndNothingElse() {
+        val today = java.time.LocalDate.of(2026, 6, 15)
+        val inside = listOf(onDate("a", java.time.LocalDate.of(2024, 6, 12)), onDate("b", java.time.LocalDate.of(2025, 6, 22)), onDate("c", java.time.LocalDate.of(2023, 6, 15)))
+        val outside = listOf(onDate("d", java.time.LocalDate.of(2025, 6, 23)),      // eight days off
+            onDate("e", java.time.LocalDate.of(2026, 6, 14)),                        // this year
+            onDate("f", java.time.LocalDate.of(2024, 12, 15)))
+        val kept = CollageThemeSelection.onThisDay(inside + outside, today, 7).map { it.id }.toSet()
+        assertEquals(setOf("a", "b", "c"), kept)
+    }
+
+    @Test fun onThisDayCatchesAMovingHolidayWithinTheWindow() {
+        // Thanksgiving is the fourth Thursday of November: 22 Nov 2018, 28 Nov 2019, 26 Nov 2020. All are within a week of the 25th.
+        val today = java.time.LocalDate.of(2026, 11, 25)
+        val holidays = listOf(java.time.LocalDate.of(2018, 11, 22), java.time.LocalDate.of(2019, 11, 28), java.time.LocalDate.of(2020, 11, 26)).mapIndexed { i, d -> onDate("t$i", d) }
+        assertEquals(3, CollageThemeSelection.onThisDay(holidays, today, 7).size)
+    }
+
+    @Test fun onThisDayWorksAcrossTheNewYearAndOnALeapDay() {
+        // A window around 2 January reaches back into December of the year before.
+        val january = CollageThemeSelection.onThisDay(listOf(onDate("x", java.time.LocalDate.of(2024, 12, 28))), java.time.LocalDate.of(2026, 1, 2), 7)
+        assertEquals(1, january.size)
+        // 29 February has no date in most years; the 28th stands in.
+        val leap = CollageThemeSelection.onThisDay(listOf(onDate("y", java.time.LocalDate.of(2025, 2, 28))), java.time.LocalDate.of(2028, 2, 29), 0)
+        assertEquals(1, leap.size)
+        assertTrue(CollageThemeSelection.onThisDay(emptyList(), java.time.LocalDate.of(2026, 6, 15), 7).isEmpty())
+    }
+
+    @Test fun theAnniversaryThemeTakesTheBiggestEarlierDayNearToday() {
+        val today = java.time.LocalDate.of(2026, 6, 15)
+        val album = dayOf("big", java.time.LocalDate.of(2024, 6, 17), 9) + dayOf("small", java.time.LocalDate.of(2025, 6, 13), 3) +
+            dayOf("now", java.time.LocalDate.of(2026, 6, 14), 12) + dayOf("far", java.time.LocalDate.of(2023, 9, 1), 20)
+        val chooser = chooser(album)
+        val ctx = context(album, setOf("anniversary"), today = today)
+        val candidates = CollageThemes.ANNIVERSARY.candidates(ctx, chooser, 5, emptySet(), null)
+        assertTrue("some candidates", candidates.isNotEmpty())
+        assertTrue("from the biggest earlier day near today: ${candidates.map { it.id }}", candidates.all { it.id.startsWith("big") })
+    }
+
+    @Test fun theAnniversaryThemeOffersNothingWhenNoEarlierYearHasADayNearToday() {
+        val album = dayOf("now", java.time.LocalDate.of(2026, 6, 14), 12) + dayOf("far", java.time.LocalDate.of(2023, 9, 1), 20)
+        val candidates = CollageThemes.ANNIVERSARY.candidates(context(album, setOf("anniversary")), chooser(album), 5, emptySet(), null)
+        assertTrue(candidates.isEmpty())
+    }
+
+    @Test fun theAnniversaryThemeIsOneOfTheThemesThatTakeTurns() {
+        assertTrue(CollageThemes.all.any { it.id == "anniversary" })
+        assertEquals("On this day", CollageThemes.ANNIVERSARY.label)
     }
 
     @Test fun aSingleEnabledThemeIsUsedEveryTime() {

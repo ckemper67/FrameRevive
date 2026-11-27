@@ -48,6 +48,26 @@ object CollageThemeSelection {
     }
 
     /**
+     * The photos taken within [memoryDays] of today's date in an earlier year, "on this day", the window the single-photo
+     * memories use, so a moving holiday is caught. Only millisecond arithmetic per photo: a calendar conversion for each
+     * of 15,000 photos costs about a third of a second on the frame.
+     */
+    fun onThisDay(photos: List<FramePhoto>, today: LocalDate, memoryDays: Int): List<FramePhoto> {
+        val firstDay = photos.asSequence().filter { it.dated }.minOfOrNull { Math.floorDiv(it.takenMs + it.offsetMs, DAY_MS) } ?: return emptyList()
+        val thisYearStart = LocalDate.of(today.year, 1, 1).toEpochDay()
+        // One window per earlier year in the album, centred on the same month and day (29 February falls back to the 28th).
+        val windows = (LocalDate.ofEpochDay(firstDay).year until today.year).map { year ->
+            val centre = LocalDate.of(year, today.month, minOf(today.dayOfMonth, today.month.length(java.time.Year.isLeap(year.toLong())))).toEpochDay()
+            (centre - memoryDays)..(centre + memoryDays)
+        }
+        return photos.filter {
+            if (!it.dated) return@filter false
+            val day = Math.floorDiv(it.takenMs + it.offsetMs, DAY_MS)
+            day < thisYearStart && windows.any { w -> day in w }
+        }
+    }
+
+    /**
      * Candidates from the best single capture date: downloaded photos first, then the ones shown longest ago, so a
      * collage is not handed whatever four photos the date happened to have. See [rankedDays].
      */

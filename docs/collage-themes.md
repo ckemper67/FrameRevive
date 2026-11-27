@@ -81,6 +81,16 @@ and summer time merge, and call the biggest group home; or let the owner set it.
   visits, so trip and anniversary collages help day coverage: each shows up to 4 different days.
 - Optionally a small label on the slide ("This day through the years").
 
+Built (2026-11-27): **On this day**, a simpler first version of "this day through the years". It takes the best day (not
+shown lately first, then the one with the most photos) among the days within the memory window of today's date in an
+earlier year, and the planner then looks at the days around it like for any other theme (see
+`collage-picking-plan.md`). It does not pick one photo per year and does not know holidays by name; the window catches
+a moving holiday, since Thanksgiving always falls within a week of 27 November. On the owner's album the biggest day in
+that window was Thanksgiving itself in 5 of the 16 years that had photos there and a neighbouring day otherwise (in 2013 a
+52-photo day on 25 November, against 5 photos on Thanksgiving); the planner found a five-photo collage from the day
+alone in 9 of 16 years and from the day and the week around it in 15 of 16. Holiday names and one photo per year stay
+as later steps.
+
 ## Floating holidays for "this day through the years"
 
 Assessment (2026-11-22). The matching key of the theme is a calendar date (month and day) or a holiday. Every day

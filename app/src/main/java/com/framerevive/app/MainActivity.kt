@@ -901,7 +901,8 @@ class MainActivity : Activity() {
         val gate=sharpnessGate()
         return SlideContext(photos,cachedIds,{ cached(it).exists() },::cachedSize,{ p -> p.id in cachedIds && gate(p) },hashes,d.widthPixels,d.heightPixels,
             prefs.getBoolean("collages",true),prefs.getInt("collageEvery",20),enabledThemes(),
-            prefs.getBoolean("pairs",true),playHistory,gate,fill = prefs.getBoolean("crop",true))
+            prefs.getBoolean("pairs",true),playHistory,gate,fill = prefs.getBoolean("crop",true),
+            today = LocalDate.now(),memoryDays = prefs.getInt("memoryDays",14))
     }
     private fun markDisplayed(slide:FrameSlide,fromHistory:Boolean=false) {
         lastSlide=slide; history.record(slide,fromHistory)

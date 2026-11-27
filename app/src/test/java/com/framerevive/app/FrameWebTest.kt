@@ -4,7 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameWebTest {
-    @Test fun ownerTextCannotBecomeMarkup() {
+    @Test fun everyCollageThemeHasAToggleOnThePage() {
+val page=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("collageTheme_day","collageTheme_outing","collageTheme_anniversary")))
+for(theme in CollageThemes.all) {
+assertTrue("toggle for ${theme.id}",page.contains("name=\"collageTheme_${theme.id}\""))
+assertTrue("${theme.label} is named",page.contains("Collage theme: ${theme.label}"))
+}
+assertTrue(page.contains("name=\"collageTheme_anniversary\" checked"))
+}
+@Test fun ownerTextCannotBecomeMarkup() {
         val payload = "<script>alert('private')</script>"
         val page = FrameWeb.render(FrameWeb.State(mapOf("title" to payload, "albumId" to payload,
             "syncError" to payload, "diagnostics" to payload), emptySet(), listOf(FrameWeb.Album(payload,payload))))
