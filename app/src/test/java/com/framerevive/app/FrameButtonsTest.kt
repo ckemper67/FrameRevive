@@ -53,4 +53,13 @@ class FrameButtonsTest {
         // Plus and Minus keep their meaning.
         val c=FrameButtons();assertEquals(FrameButtons.Action.NEXT,c.down(24,0));assertFalse(FrameButtons.closesControls(c.up(24,100),true))
     }
+    @Test fun theButtonsStayAwakeForTheWindowAfterATouchAndEachTouchRestartsIt() {
+        val w=ButtonWake(8000)
+        assertFalse("asleep until touched",w.awake(100))
+        w.touch(1000)
+        assertTrue(w.awake(1000));assertTrue(w.awake(8999))
+        assertFalse(w.awake(9000))
+        w.touch(5000)
+        assertTrue("a later touch restarts the window",w.awake(12999));assertFalse(w.awake(13000))
+    }
 }

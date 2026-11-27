@@ -6,6 +6,7 @@ The Lenovo CD-3L501F has a dedicated gesture input device. FrameRevive can read 
 - The photo slides the way your hand moved, so you can see the wave was read correctly; other changes cross-fade.
 - Pause about a second between waves. An 800 ms cooldown rejects accidental duplicate events.
 - Direction follows the display rotation, using the same mapping as Lenovo's original app, so a wave to your left advances however the frame hangs. Upside down (rotated 180 degrees) was checked on the frame; the other rotations are unit-tested only.
+- A hand moving towards the front buttons looks like a wave to the sensor. While the buttons are asleep (the lights off), the first such movement only wakes them and lights them; waves then change the photo for as long as they stay awake, 8 seconds after the last touch, key press or movement. So after a quiet spell the first wave only lights the buttons, and reaching for a button does not flip the picture.
 - Vertical and forward/backward gestures have no slideshow action.
 - Gestures pause during scheduled sleep and while the frame's on-screen controls are visible.
 - Turn off **Hand gestures** in the webpage's Display settings or the frame's Settings if you prefer button controls.

@@ -160,6 +160,8 @@ class MainActivity : Activity() {
     private lateinit var client: PrivatePhotosClient
     private lateinit var holidayBorder: HolidayBorderView
     private lateinit var image: FramePhotoView
+    /** Set when a hand movement found the buttons asleep, until its key is released; that movement changes no picture. */
+    private var gestureWokeButtons = false
     private var waveSlide = 0
     private var waveSlideAt = 0L
     @Volatile private var photoLoading = false
@@ -1265,7 +1267,13 @@ class MainActivity : Activity() {
         return super.dispatchTouchEvent(event)
     }
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (event.action == android.view.KeyEvent.ACTION_DOWN) buttonLights.touch()
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            // A hand moving towards the buttons looks like a wave to the gesture sensor. When the buttons are asleep that
+            // first movement only wakes (lights) them, so reaching for a button does not change the picture; waves count
+            // for as long as the buttons stay awake.
+            if (event.device?.name == "gesture") gestureWokeButtons = !buttonLights.isAwake()
+            buttonLights.touch()
+        }
         if (android.os.Build.MODEL == "Lenovo CD-3L501F" && event.device?.name == "as9061d_key" && FrameButtons.supports(event.keyCode) && active && !closed && !sleeping) {
             val now = android.os.SystemClock.elapsedRealtime()
             if (event.action == android.view.KeyEvent.ACTION_DOWN && controls.visibility == View.VISIBLE) showControls()
@@ -1281,6 +1289,7 @@ class MainActivity : Activity() {
         }
         if (android.os.Build.MODEL == "Lenovo CD-3L501F" && event.device?.name == "gesture" && event.keyCode in 289..294 &&
             prefs.getBoolean("gestures", true) && active && !closed && !sleeping && controls.visibility != View.VISIBLE) {
+            if (gestureWokeButtons) { if (event.action == android.view.KeyEvent.ACTION_UP) gestureWokeButtons = false; return true }
             if (event.action == android.view.KeyEvent.ACTION_UP && !event.isCanceled) {
                 val action = gestures.accept(event.keyCode, windowManager.defaultDisplay.rotation, android.os.SystemClock.elapsedRealtime())
                 if (action != 0) {
