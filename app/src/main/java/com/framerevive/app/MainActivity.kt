@@ -159,6 +159,8 @@ class MainActivity : Activity() {
     private lateinit var client: PrivatePhotosClient
     private lateinit var holidayBorder: HolidayBorderView
     private lateinit var image: FramePhotoView
+    private var waveSlide = 0
+    private var waveSlideAt = 0L
     @Volatile private var photoLoading = false
     private lateinit var pausedBadge: TextView
     private lateinit var favoriteBadge: TextView
@@ -961,7 +963,7 @@ class MainActivity : Activity() {
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
-        val previous = history.previous() ?: return
+        val previous = history.previous() ?: run { waveSlide = 0; return }
         handler.removeCallbacks(advance)
         showSlide(previous, fromHistory = true)
     }
@@ -1019,7 +1021,10 @@ class MainActivity : Activity() {
                         b.recycle(); background.recycle(); return@post
                     }
                     setPhotoLoading(false)
-                    image.setPhoto(b, background)
+                    // A wave's direction applies to the photo it brings, not to a later one (and not if nothing was shown for it).
+                    val slideNow = if (android.os.SystemClock.uptimeMillis() - waveSlideAt < 8_000) waveSlide else 0
+                    waveSlide = 0
+                    image.setPhoto(b, background, slideNow)
                     multiPreview = preview; shownAt = System.currentTimeMillis()
                     tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f; tileRects = rects
                     markDisplayed(slide,fromHistory)
@@ -1288,6 +1293,9 @@ class MainActivity : Activity() {
                 if (action != 0) {
                     prefs.edit().putString("lastGesture",if(action > 0) "Next photo" else "Previous photo")
                         .putLong("lastGestureAt",System.currentTimeMillis()).apply()
+                    // The picture slides the way the hand moved, so the wave is seen to have been read correctly.
+                    // Next is a wave to the left, which moves the picture left; previous is a wave to the right.
+                    waveSlide = -action.coerceIn(-1, 1); waveSlideAt = android.os.SystemClock.uptimeMillis()
                     if (action > 0) showNext() else showPrevious()
                 }
             }
