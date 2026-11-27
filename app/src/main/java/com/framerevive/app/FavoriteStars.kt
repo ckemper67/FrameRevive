@@ -2,8 +2,6 @@ package com.framerevive.app
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.view.View
 
 /** A star's top-right corner and its size, in screen pixels. */
@@ -27,16 +25,18 @@ object FavoriteStars {
 
 /** Draws a star at each spot. It takes no touches, so taps still reach the picture underneath. */
 class FavoriteStarsView(context: Context) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFD54F.toInt(); textAlign = Paint.Align.RIGHT }
     private var spots: List<StarSpot> = emptyList()
 
     fun show(stars: List<StarSpot>) { spots = stars; invalidate() }
 
+    /** A spot's size is the star's visible width; the box around it also holds the shadow. */
     override fun onDraw(canvas: Canvas) {
         for (spot in spots) {
-            paint.textSize = spot.size
-            paint.setShadowLayer(spot.size / 8f, spot.size / 24f, spot.size / 24f, Color.BLACK)
-            canvas.drawText("\u2605", spot.x, spot.y + spot.size * 0.8f, paint)
+            val box = spot.size / (2f * StarShape.RADIUS_SHARE * 0.951f)
+            // Place the visible star, not the box, so its right edge and top touch the spot.
+            val left = spot.x - box * (0.5f + StarShape.RADIUS_SHARE * 0.951f)
+            val top = spot.y - box * (0.5f - StarShape.RADIUS_SHARE)
+            StarShape.draw(canvas, left, top, box)
         }
     }
 }

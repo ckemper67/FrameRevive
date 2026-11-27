@@ -163,12 +163,11 @@ class MainActivity : Activity() {
     private var waveSlideAt = 0L
     @Volatile private var photoLoading = false
     private lateinit var pausedBadge: TextView
-    private lateinit var favoriteBadge: TextView
+    private lateinit var favoriteBadge: FavoriteBadgeView
     private lateinit var favoriteStars: FavoriteStarsView
     /** Where each picture of the collage or pair on screen sits, worked out with the render and read on the UI thread. */
     @Volatile private var tilePanels: List<CollageLayout.Panel> = emptyList()
     @Volatile private var tileScale = 1f
-    private val settleFavoriteBadge = Runnable { updateFavoriteBadge() }
     private lateinit var pauseButton: Button
     @Volatile private var playbackPaused = false
     private val frontButtons = FrameButtons()
@@ -289,13 +288,13 @@ class MainActivity : Activity() {
             visibility = if (playbackPaused) View.VISIBLE else View.GONE
         }
         root.addView(pausedBadge, FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply { setMargins(18,18,18,18) })
-        favoriteBadge = TextView(this).apply {
-            textSize = 20f; setTextColor(0xFFFFD54F.toInt()); setShadowLayer(8f,2f,2f,Color.BLACK)
-            setPadding(24,12,24,12); visibility = View.GONE
-        }
+        favoriteBadge = FavoriteBadgeView(this).apply { visibility = View.GONE }
         favoriteStars = FavoriteStarsView(this)
         root.addView(favoriteStars, FrameLayout.LayoutParams(-1,-1))
-        root.addView(favoriteBadge, FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END).apply { setMargins(18,18,18,18) })
+        // The frame's original app shows its star 80 dp square, 20 dp from the corner, so the star box does too.
+        val starSize = (80 * resources.displayMetrics.density).toInt()
+        val starMargin = (20 * resources.displayMetrics.density).toInt()
+        root.addView(favoriteBadge, FrameLayout.LayoutParams(starSize,starSize,Gravity.TOP or Gravity.END).apply { setMargins(starMargin,starMargin,starMargin,starMargin) })
         applyStarMode()
         controls = LinearLayout(this).apply {
             visibility = View.GONE
@@ -559,9 +558,8 @@ class MainActivity : Activity() {
         saveFavorites()
         // A photo from the favorites album leaves the pool when un-starred and returns when starred again.
         if (favoriteAlbum.any { it.id == photo.id }) network.execute { applyCombined() }
-        val message = if (on) "Added to favorites" else "Removed from favorites"
-        handler.post { showFavoriteNotice(message) }
-        return message + "."
+        handler.post { showFavoriteChange(on) }
+        return if (on) "Added to favorites." else "Removed from favorites."
     }
 
     private fun chooseFavorite(slide: FrameSlide) {
@@ -574,24 +572,13 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null).show()
     }
 
-    /** A star on a favorite while it is on screen, and a short note when the star changes. */
+    /** The gold star on a favorite while it is on screen; a collage or pair has its stars on the favorite's own tile instead. */
     private fun updateFavoriteBadge() {
         if (!::favoriteBadge.isInitialized) return
-        handler.removeCallbacks(settleFavoriteBadge)
         val slide = lastSlide
         val starred = slide?.photos?.any { favorites.isFavorite(it.id) } == true
         updateTileStars()
-        favoriteBadge.text = starText("")
-        favoriteBadge.alpha = 0.7f
-        // A collage or pair shows its stars on the favorite's own tile; a single photo has the corner badge.
-        favoriteBadge.visibility = if (starred && (slide?.photos?.size ?: 1) == 1) View.VISIBLE else View.GONE
-    }
-
-    /** A big star, three times the size of the note beside it, so it reads from across the room. */
-    private fun starText(message: String): CharSequence {
-        val text = android.text.SpannableString(if (message.isEmpty()) "\u2605" else "\u2605 $message")
-        text.setSpan(android.text.style.RelativeSizeSpan(3f), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        return text
+        favoriteBadge.rest(starred && (slide?.photos?.size ?: 1) == 1)
     }
 
     private fun updateTileStars() {
@@ -604,12 +591,11 @@ class MainActivity : Activity() {
                 min = 16f * resources.displayMetrics.scaledDensity, max = 40f * resources.displayMetrics.scaledDensity))
     }
 
-    private fun showFavoriteNotice(message: String) {
+    /** Shows what a toggle did in the corner, as the frame's original app does, then goes back to the resting state. */
+    private fun showFavoriteChange(added: Boolean) {
         if (!::favoriteBadge.isInitialized) return
         updateTileStars()
-        handler.removeCallbacks(settleFavoriteBadge)
-        favoriteBadge.text = starText(message); favoriteBadge.alpha = 1f; favoriteBadge.visibility = View.VISIBLE
-        handler.postDelayed(settleFavoriteBadge, 2500)
+        if (added) favoriteBadge.showAdded { updateFavoriteBadge() } else favoriteBadge.showRemoved { updateFavoriteBadge() }
     }
 
     private fun favoriteSummary(): String {
