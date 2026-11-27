@@ -243,6 +243,20 @@ see `docs/streams-plan.md`, which is on hold.
 Deferred: face detection, Ken Burns, filmstrip. Dropped: colour harmony (new analysis pass and layout for
 little gain). Not possible: location captions (no GPS in the album index), person identification.
 
+## Photo quality checks: the frame's original app, and what is left out
+
+What the frame's original app checks before it shows a photo (read from its code, not run):
+
+- Exact repeats are removed by item identity, not by looking at the picture.
+- GIFs are left out of its pairs and collages, and videos are a separate media type.
+- It crops a photo to fill its slot only when about 75 percent of the photo stays visible; otherwise the whole photo is shown.
+- When it searched Google Photos by account, it asked Google to leave out five content categories (receipts, screenshots, whiteboards, documents and utility pictures), and its default and random searches included only the people and pets categories. These are Google's own labels, sent as filters in the search request. They are not checks the app makes, and they do not apply to a shared album.
+- It has no blur, sharpness or exposure check. The photos it keeps carry only a size, a creation time, a type and a video flag.
+
+What FrameRevive checks beyond that: blur against the album's own sharpness, black, blown-out and flat photos (always skipped), soft photos left out of collages, a picture whose twin was shown recently (by content hash), near-identical frames within a burst, and videos.
+
+Decision (2026-11-27): do not try to recognise screenshots, receipts or documents. A shared-link album carries no category labels. Doing it well would need a trained model, and rules based on size or format would mislabel real photos. Revisit only if a model is adopted for something else first.
+
 ## Cross-cutting rules
 
 - Every phase leaves `assembleDebug testDebugUnitTest lintDebug` green.
