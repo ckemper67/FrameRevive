@@ -1179,7 +1179,7 @@ class MainActivity : Activity() {
         return "Installed build: APK SHA-256 $apkSha; $size bytes; installed $when_"
     }
     /**
-     * Screen brightness follows the room's light (see AmbientBrightness). The owner's daytime percentage is the
+     * Screen brightness is set from the ambient light level (see AmbientBrightness). The owner's daytime percentage is the
      * ceiling; the "ambient" setting turns the following off. The sensor is only read while the activity is resumed.
      */
     private val lightSmoother = AmbientBrightness.Smoother()
@@ -1202,7 +1202,7 @@ class MainActivity : Activity() {
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
     }
-    /** True until the sensor has given its first reading, when following the room is on and there is a table to follow. */
+    /** True until the sensor has given its first reading, when the ambient light setting is on and there is a table to use. */
     private fun waitingForLight() = prefs.getBoolean("ambient", true) && brightnessCurve != null && lightSmoother.lux == null
     /** The level to set when the activity starts or wakes: the dimmest, until the first reading, so a dark room never gets a bright start. */
     private fun startBrightness(): Float = if (waitingForLight()) 0f else currentBrightness()

@@ -5,13 +5,13 @@ import kotlin.math.exp
 import kotlin.math.ln
 
 /**
- * Screen brightness that follows the room, using the device's own calibration.
+ * Screen brightness set from the ambient light level, using the device's own calibration.
  *
  * Android devices ship a lux to backlight table in framework-res (config_autoBrightnessLevels and
  * config_autoBrightnessLcdBacklightValues). It matches the panel's real range and rises steadily with lux, as the
  * brightness of a print does in the same room; a lit screen needs somewhat more light than paper to look as bright.
  * Android's own automatic brightness would use this table, but the app sets a window brightness, which overrides it,
- * so the app follows the table itself. [Curve.fromDevice] builds the curve from the device's arrays and refuses a
+ * so the app applies the table itself. [Curve.fromDevice] builds the curve from the device's arrays and refuses a
  * table that is empty or inconsistent; with no usable table the brightness stays at the fixed daytime level.
  * The owner's "Daytime brightness" stays the ceiling. The screen is never turned off: in a dark room it stays at the
  * table's lowest level, which is the panel's minimum (Android does not go below it).
