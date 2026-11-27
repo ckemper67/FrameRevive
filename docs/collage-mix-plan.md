@@ -1,7 +1,22 @@
 # Plan: collages follow the mix settings
 
-Status: proposed (2026-11-27). Nothing here is built. The design comes from a review of the problem, checked against the
+Status (2026-11-27): stages 1 and 2 are built (the theme turn scheduler, `ThemeTurns`; the recent-or-plain draw of the
+anchor day, `AnchorDraw`); stages 3 and 4 are proposed. The design comes from a review of the problem, checked against the
 code; the points where the code differs from the first proposal are marked.
+
+As built, stage 2 works like this. Each collage of "A day" or "One outing" flips its own coin (recent with probability
+`recentPercent / 100`) and draws its anchor from the best class of days, those as ready and as unseen as the best-ranked day
+and as unseen in share as the most unseen of them (so a day already shown from is not drawn while a fully unseen one
+exists, which keeps the rule that a collage prefers photos not yet shown). The weight of a day is its size (capped at 20
+photos) times its unseen share, and for a recent draw also the singles' `Recency` weight of the day; for "newest", which
+has no weight, a recent draw takes the newest 20 days of the class. A plain draw leaves the recency factor out. The day
+ranking without a draw is unchanged, and "On this day" does not use the draw.
+
+Simulated on the owner's album (864 days with five or more photos, today 27 November 2026, 4,000 draws each): at 100
+percent recent and newest, every anchor is among the newest days; under "somewhat" at 100 percent, 38 percent of the
+anchors are from the last two years against 11 percent in a plain draw, and 37 percent are from 2015 or older against 54
+percent in a plain draw; at 0 percent every year has its natural share. Before this, the ranking took the biggest unseen day
+and used recency only to break ties, so even "all recent" gave a decade-old day.
 
 ## Goal
 
@@ -76,8 +91,8 @@ of collages on a day with a favorite, and how many distinct days are used.
 
 ## Staged plan
 
-1. The theme turn scheduler (small, testable, changes only how often On this day comes up).
-2. The recency-weighted draw for A day and One outing, with the simulation.
+1. The theme turn scheduler (small, testable, changes only how often On this day comes up; built).
+2. The recency-weighted draw for A day and One outing, with the simulation (built).
 3. The favorites weight on the anchor.
 4. The web sentence and this document's update in `collage-themes.md`.
 

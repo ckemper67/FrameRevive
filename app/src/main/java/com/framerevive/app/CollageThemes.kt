@@ -69,7 +69,7 @@ object CollageThemes {
         override val label = "A day"
         override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
             val day = CollageThemeSelection.rankedDays(ctx.dayIndex.days, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
-                minCount = CollageCadence.MIN_PHOTOS).firstOrNull() ?: return emptyList()
+                minCount = CollageCadence.MIN_PHOTOS, draw = ctx.anchorDraw()).firstOrNull() ?: return emptyList()
             return TimeSpread.separated(ordered(day.photos, ctx.seen, CollageThemeSelection.MAX_CANDIDATES * 3), CollageCadence.MIN_PHOTOS)
                 .take(CollageThemeSelection.MAX_CANDIDATES)
         }
@@ -84,7 +84,7 @@ object CollageThemes {
         override val label = "One outing"
         override fun candidates(ctx: SlideContext, queue: SlideQueue, count: Int, avoid: Set<String>, lastDay: LocalDate?): List<FramePhoto> {
             val days = CollageThemeSelection.rankedDays(ctx.dayIndex.days, count, ctx.cachedIds, queue.ineligible(avoid), setOfNotNull(lastDay), ctx.seen,
-                minCount = CollageCadence.MIN_PHOTOS)
+                minCount = CollageCadence.MIN_PHOTOS, draw = ctx.anchorDraw())
             // The first outing with enough photos for [count] wins; failing that, the richest one found.
             var richest: List<FramePhoto> = emptyList(); var richestApart = 0
             for (day in days.take(OUTING_DAYS)) {

@@ -21,9 +21,9 @@ class CollageThemesTest {
 
     private fun context(photos: List<FramePhoto>, themes: Set<String>, cached: Set<String> = photos.map { it.id }.toSet(),
                         seen: Map<String, PlayRecord> = emptyMap(), size: (FramePhoto) -> CollageLayout.Size = { landscape },
-                        pairs: Boolean = false, today: java.time.LocalDate = java.time.LocalDate.of(2026, 6, 15), memoryDays: Int = 7, index: DayIndex? = null) =
+                        pairs: Boolean = false, today: java.time.LocalDate = java.time.LocalDate.of(2026, 6, 15), memoryDays: Int = 7, index: DayIndex? = null, random: Random = Random(1)) =
         SlideContext(photos, cached, { it.id in cached }, size, { true }, emptyMap(), 1920, 1080, true, 5, themes, pairs, seen,
-            today = today, memoryDays = memoryDays, dayIndexOverride = index)
+            today = today, memoryDays = memoryDays, dayIndexOverride = index, random = random)
 
     private fun onDate(id: String, date: java.time.LocalDate, minuteOfDay: Int = 600) = FramePhoto(id, "u$id", date.toEpochDay() * dayMs + minuteOfDay * minute)
     private fun dayOf(prefix: String, date: java.time.LocalDate, count: Int, step: Int = 12) = (0 until count).map { onDate("$prefix$it", date, 540 + it * step) }
@@ -161,14 +161,14 @@ class CollageThemesTest {
         assertEquals(listOf("day", "outing", "day", "outing"), seen)
     }
 
-    @Test fun repeatedPreviewsMoveThroughDifferentDaysInsteadOfTwoTakingTurns() {
+    @Test fun repeatedPreviewsNeverRepeatAPhoto() {
         val album = run("a", 1, 9 * 60, 12, 12) + run("b", 2, 9 * 60, 12, 12) + run("c", 3, 9 * 60, 12, 12) + run("d", 4, 9 * 60, 12, 12)
         val chooser = chooser(album)
-        val days = (0 until 4).map {
-            chooser.previewCollage(context(album, setOf("day"), size = mixedShapes), 5).photos.first().id.first()
+        val shown = (0 until 4).flatMap {
+            chooser.previewCollage(context(album, setOf("day"), size = mixedShapes), 5).photos.map { p -> p.id }
         }
-        // The preview records no plays, so without a memory of its own the best two days would alternate.
-        assertEquals("each preview shows a day not seen in the last few: $days", days.size, days.distinct().size)
+        // The preview records no plays, so without a memory of its own the same best photos would come up again.
+        assertEquals("no photo twice across the previews: $shown", shown.size, shown.distinct().size)
     }
 
     @Test fun aPreviewWidensToTheDaysAroundWhenTheDayLacksTheShapes() {
@@ -193,20 +193,26 @@ class CollageThemesTest {
     }
 
     @Test fun thePlannerPoolsAreTheMomentTheDayAndTheWeekAroundTheTheme() {
-        // Day 1 (the theme's best), day 5 within a week, day 40 outside it.
-        val album = run("a", 1, 9 * 60, 12, 8) + run("b", 5, 9 * 60, 12, 4) + run("c", 40, 9 * 60, 12, 6)
-        val chooser = chooser(album)
-        val ctx = context(album, setOf("day"))
-        val themePool = CollageThemes.DAY.candidates(ctx, chooser, 5, emptySet(), null)
-        val pools = CollagePlanner.pools(ctx, chooser, CollageThemes.DAY, themePool)
-        val byWindow = pools.associate { it.window to it.photos.map { p -> p.id } }
-        assertTrue("a day theme has no moment pool", CollagePlanner.Window.MOMENT !in byWindow)
-        val anchorPrefix = themePool.first().id.first()
-        assertTrue(byWindow.getValue(CollagePlanner.Window.DAY).all { it.startsWith(anchorPrefix) })
-        val week = byWindow.getValue(CollagePlanner.Window.WEEK)
-        assertTrue("the week includes the anchor day's photos first", week.first().startsWith(anchorPrefix))
-        assertTrue("and the nearby day", week.any { !it.startsWith(anchorPrefix) })
-        assertTrue("but not the day 40 days off", week.none { it.startsWith("c") })
+        // Day 1 and day 5 are within a week of each other; day 40 is not. The day theme draws its anchor at random, so
+        // the properties are checked for many draws.
+        val album = run("a", 1, 9 * 60, 12, 8) + run("b", 5, 9 * 60, 12, 8) + run("c", 40, 9 * 60, 12, 8)
+        for (seed in 1..20) {
+            val chooser = chooser(album)
+            val ctx = context(album, setOf("day"), random = Random(seed))
+            val themePool = CollageThemes.DAY.candidates(ctx, chooser, 5, emptySet(), null)
+            val pools = CollagePlanner.pools(ctx, chooser, CollageThemes.DAY, themePool)
+            val byWindow = pools.associate { it.window to it.photos.map { p -> p.id } }
+            assertTrue("a day theme has no moment pool", CollagePlanner.Window.MOMENT !in byWindow)
+            val anchorPrefix = themePool.first().id.first()
+            assertTrue(byWindow.getValue(CollagePlanner.Window.DAY).all { it.startsWith(anchorPrefix) })
+            val week = byWindow.getValue(CollagePlanner.Window.WEEK)
+            assertTrue("the week includes the anchor day's photos first", week.first().startsWith(anchorPrefix))
+            when (anchorPrefix) {
+                'c' -> assertTrue("nothing within a week of day 40", week.all { it.startsWith("c") })
+                else -> assertTrue("the nearby day is in the week", week.any { it.first() != anchorPrefix && it.first() != 'c' })
+            }
+            assertTrue("never a day more than a week off", week.none { it.first() != anchorPrefix && (it.first() == 'c' || anchorPrefix == 'c') })
+        }
     }
 
     @Test fun anOutingThemeAddsAMomentPool() {

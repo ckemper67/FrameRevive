@@ -19,7 +19,13 @@ class SlideContext(
     /** The album grouped by day, built on a worker when the catalog changed; built here, once, when none is given. */
     dayIndexOverride: DayIndex? = null,
     /** The owner's recent-versus-memories slider, 0 to 100: how often "On this day" takes its turn follows the memories share. */
-    val recentPercent: Int = 50) {
+    val recentPercent: Int = 50,
+    /** How strongly newer days are preferred when a collage is drawn recent: the singles' own setting. */
+    val recency: Recency = Recency.DEFAULT,
+    /** The source of each collage's recent-or-plain flip and day draw; seeded in tests. */
+    val random: kotlin.random.Random = kotlin.random.Random.Default) {
+    /** A fresh draw for one collage: recent with probability recentPercent / 100, else plain. */
+    fun anchorDraw() = AnchorDraw.flip(recentPercent, recency, today.toEpochDay() * DayIndex.DAY_MS, random)
     val dayIndex: DayIndex by lazy { dayIndexOverride ?: DayIndex(photos) }
     /** Whether bars may not appear at all, so a photo that would not fill the frame is paired or tiled, or not shown. */
     val strict: Boolean get() = fill && pairs
