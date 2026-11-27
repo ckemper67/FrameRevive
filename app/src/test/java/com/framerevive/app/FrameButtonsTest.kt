@@ -1,6 +1,8 @@
 package com.framerevive.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameButtonsTest {
@@ -40,5 +42,15 @@ class FrameButtonsTest {
         assertEquals(FrameButtons.Action.NONE,b.up(295,3700))
         // Plus and minus are unaffected.
         assertEquals(FrameButtons.Action.NEXT,b.down(24,4000))
+    }
+    @Test fun aShortStarPressClosesTheControlsOnlyWhileTheyAreOpen() {
+        assertTrue(FrameButtons.closesControls(FrameButtons.Action.TOGGLE_PAUSE,true))
+        assertTrue(FrameButtons.closesControls(FrameButtons.Action.TOGGLE_FAVORITE,true))
+        assertFalse("with the controls closed a short press still pauses or stars",FrameButtons.closesControls(FrameButtons.Action.TOGGLE_PAUSE,false))
+        // The release after the hold that opened them gives no action, so it does not close them again.
+        val b=FrameButtons();b.down(295,0);assertEquals(FrameButtons.Action.CONTROLS,b.hold(2600))
+        assertFalse(FrameButtons.closesControls(b.up(295,2700),true))
+        // Plus and Minus keep their meaning.
+        val c=FrameButtons();assertEquals(FrameButtons.Action.NEXT,c.down(24,0));assertFalse(FrameButtons.closesControls(c.up(24,100),true))
     }
 }

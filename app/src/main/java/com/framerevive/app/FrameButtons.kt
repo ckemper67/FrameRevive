@@ -36,5 +36,10 @@ class FrameButtons {
         const val STAR = 295
         const val HOLD_MS = 2500L
         fun supports(code: Int) = code == PLUS || code == MINUS || code == STAR
+        /**
+         * A short Star press while the on-frame controls are open closes them, instead of pausing or starring: the front
+         * keys had no way out, and every key restarts the controls' 30 second timer. A release after a hold gives no action.
+         */
+        fun closesControls(action: Action, controlsOpen: Boolean) = controlsOpen && (action == Action.TOGGLE_PAUSE || action == Action.TOGGLE_FAVORITE)
     }
 }

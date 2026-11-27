@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.*
 import org.json.JSONArray
@@ -303,9 +304,12 @@ class MainActivity : Activity() {
         }
         status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 20f; text = "FrameRevive — starting…" }
         controls.addView(status)
-        val buttons = LinearLayout(this)
+        // Seven buttons do not fit in one row on a portrait screen (the last ones, Close among them, ran off the edge), so
+        // they are laid out in two rows, each button taking an equal share of the width and never wrapping its label.
+        var buttons = LinearLayout(this)
         fun button(label: String, action: () -> Unit): Button {
-            return Button(this).apply { text = label; setOnClickListener { action(); showControls() } }.also { buttons.addView(it) }
+            return Button(this).apply { text = label; maxLines = 1; setOnClickListener { action(); showControls() } }
+                .also { buttons.addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
         }
         button("Previous") { showPrevious() }
         button("Next") { handler.removeCallbacks(advance); showNext() }
@@ -315,9 +319,11 @@ class MainActivity : Activity() {
             // A single photo shows its own star animation; only a refusal needs words.
             if ((lastSlide?.photos?.size ?: 1) > 1) android.widget.Toast.makeText(this, answer, android.widget.Toast.LENGTH_SHORT).show()
         }
+        controls.addView(buttons)
+        buttons = LinearLayout(this)
         button("Refresh") { sync() }
         button("Settings") { settings() }
-        button("Close") { handler.post { controlsUntil = 0; controls.visibility = View.GONE; handler.removeCallbacks(hide) } }
+        button("Close") { handler.post { hideControls() } }
         controls.addView(buttons)
         root.addView(controls, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         night = TextView(this).apply {
@@ -525,6 +531,7 @@ class MainActivity : Activity() {
             } finally { checkingCount.set(false) }
         }
     }
+    private fun hideControls() { controlsUntil = 0; controls.visibility = View.GONE; handler.removeCallbacks(hide) }
     private fun showControls() { controlsUntil = android.os.SystemClock.uptimeMillis() + 30_000; controls.visibility = View.VISIBLE; handler.removeCallbacks(hide); handler.postDelayed(hide, 30_000) }
 
     private fun scheduleAdvance(delay: Long) {
@@ -946,7 +953,9 @@ class MainActivity : Activity() {
     }
     private fun showPrevious() {
         if (!active || closed || sleeping) return
-        val previous = history.previous() ?: run { waveSlide = 0; return }
+        // Nothing earlier to show (right after a start, or at the first photo of the history): say so, as the frame's
+        // original app does, instead of doing nothing.
+        val previous = history.previous() ?: run { waveSlide = 0; android.widget.Toast.makeText(this, "This is the first photo.", android.widget.Toast.LENGTH_SHORT).show(); return }
         handler.removeCallbacks(advance)
         showSlide(previous, fromHistory = true)
     }
@@ -1265,7 +1274,8 @@ class MainActivity : Activity() {
                 if (event.keyCode == FrameButtons.STAR) { handler.removeCallbacks(holdStar); handler.postDelayed(holdStar, FrameButtons.HOLD_MS) }
             } else if (event.action == android.view.KeyEvent.ACTION_UP) {
                 if (event.keyCode == FrameButtons.STAR) handler.removeCallbacks(holdStar)
-                performFrontAction(frontButtons.up(event.keyCode, now, event.isCanceled))
+                val action = frontButtons.up(event.keyCode, now, event.isCanceled)
+                if (FrameButtons.closesControls(action, controls.visibility == View.VISIBLE)) hideControls() else performFrontAction(action)
             }
             return true
         }
