@@ -17,7 +17,9 @@ class SlideContext(
     /** Today, and how many days either side of it count as "on this day" in an earlier year (the memory window). */
     val today: LocalDate = LocalDate.now(), val memoryDays: Int = 14,
     /** The album grouped by day, built on a worker when the catalog changed; built here, once, when none is given. */
-    dayIndexOverride: DayIndex? = null) {
+    dayIndexOverride: DayIndex? = null,
+    /** The owner's recent-versus-memories slider, 0 to 100: how often "On this day" takes its turn follows the memories share. */
+    val recentPercent: Int = 50) {
     val dayIndex: DayIndex by lazy { dayIndexOverride ?: DayIndex(photos) }
     /** Whether bars may not appear at all, so a photo that would not fill the frame is paired or tiled, or not shown. */
     val strict: Boolean get() = fill && pairs
@@ -89,8 +91,8 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     var shown = 0; private set
     var skipped = 0; private set
     var fallbacks = 0; private set
-    /** Position in the enabled themes of the one whose turn it is. */
-    private var turn = 0
+    /** Whose turn it is among the enabled themes; "On this day" follows the memories share of the mix slider. */
+    private val turns = ThemeTurns()
     private var proposedTheme: CollageTheme? = null
     private var firstTheme: CollageTheme? = null
 
@@ -99,11 +101,7 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     private fun enabled(ctx: SlideContext): List<CollageTheme> = CollageThemes.all.filter { it.id in ctx.themes }.ifEmpty { listOf(CollageThemes.DAY) }
 
     /** The enabled themes starting with the one whose turn it is. */
-    private fun inTurn(ctx: SlideContext): List<CollageTheme> {
-        val list = enabled(ctx)
-        val start = turn % list.size
-        return list.drop(start) + list.take(start)
-    }
+    private fun inTurn(ctx: SlideContext): List<CollageTheme> = turns.order(enabled(ctx), ctx.recentPercent)
 
     /**
      * The collage that fits best: as many photos as tile the frame within the crop limit, up to [count], and never fewer
@@ -147,7 +145,7 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
         lastDay = photos.first().date()
         plan = emptyList(); planTheme = null
         // The next collage starts with the theme after the one just shown.
-        proposedTheme?.let { used -> val position = CollageThemes.all.indexOf(used); if (position >= 0) turn = position + 1 }
+        proposedTheme?.let { turns.fired(it) }
     }
 
     /** The photos to have ready, nearest first, naming the next collage's photos before it falls due. */
@@ -198,7 +196,7 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
             }
             if (fitting.size in CollageCadence.MIN_PHOTOS..CollageCadence.MAX_PHOTOS) {
                 lastThemeId = theme.id; lastDay = fitting.first().date()
-                turn = CollageThemes.all.indexOf(theme) + 1
+                turns.fired(theme)
                 // Remember what was shown, so the next preview moves on to other photos and days. Playback records its
                 // plays; a preview does not, and without this the two best days would take turns for ever.
                 previewed += fitting.map { it.id }
@@ -230,7 +228,7 @@ class CollagePresentation(private val cadence: CollageCadence) : Presentation {
     /** The catalog changed, so candidates chosen from the old one are stale. */
     fun forgetPlan() { plan = emptyList(); planTheme = null }
 
-    fun resetForAlbum() { forgetPlan(); lastDay = null; lastThemeId = null; turn = 0 }
+    fun resetForAlbum() { forgetPlan(); lastDay = null; lastThemeId = null; turns.reset() }
 }
 
 /**
