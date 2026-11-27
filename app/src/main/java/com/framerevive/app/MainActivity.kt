@@ -1151,6 +1151,31 @@ class MainActivity : Activity() {
         super.onWindowFocusChanged(hasFocus)
         if(hasFocus && !closed) enterFullscreen()
     }
+    /**
+     * Identifies the installed build. The version name does not change between builds, so a stale or wrong install is
+     * otherwise invisible. The SHA-256 is of the installed APK file, so it matches `shasum -a 256 app-debug.apk` on
+     * the Mac; it is computed once on a background thread because the file is about 16 MB.
+     */
+    @Volatile private var apkSha: String? = null
+    private fun buildReport(): String {
+        if (apkSha == null) {
+            apkSha = "computing"
+            Thread {
+                apkSha = runCatching {
+                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                    java.io.File(applicationInfo.sourceDir).inputStream().use { input ->
+                        val buf = ByteArray(65536)
+                        while (true) { val n = input.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+                    }
+                    md.digest().joinToString("") { "%02x".format(it) }
+                }.getOrElse { "unavailable" }
+            }.start()
+        }
+        val updated = runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
+        val size = runCatching { java.io.File(applicationInfo.sourceDir).length() }.getOrDefault(0L)
+        val when_ = if (updated > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(updated)) else "unknown"
+        return "Installed build: APK SHA-256 $apkSha; $size bytes; installed $when_"
+    }
     override fun onResume() {
         super.onResume(); active = true; enterFullscreen()
         buttonLights.start()
@@ -1268,7 +1293,7 @@ class MainActivity : Activity() {
             "powerEvent" to prefs.getString("lastPowerEvent","No scheduled event recorded yet").orEmpty(),
             "nextWake" to if (prefs.contains("nextWAKE")) time("nextWAKE") else "Schedule disabled",
             "diagnostics" to listOf(
-                "FrameRevive ${FrameWeb.VERSION}", "Android API ${android.os.Build.VERSION.SDK_INT}",
+                "FrameRevive ${FrameWeb.VERSION}", buildReport(), "Android API ${android.os.Build.VERSION.SDK_INT}",
                 "Playback paused: $playbackPaused",
                 "Caption on screen: ${if (caption.visibility == View.VISIBLE) caption.text else "hidden"} (style ${prefs.getString("dateStyle",DATE_ON_PICTURE)})",
                 "Main thread: ${mainStall.ifEmpty { "responsive" }}",
