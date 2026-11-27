@@ -43,4 +43,13 @@ class FrameWebTest {
         val report=page.substringAfter("id=\"diagnosticReport\"").substringBefore("</pre>")
         assertFalse(report.contains("photos.app.goo.gl"))
     }
+
+    @Test fun theAmbientBrightnessToggleFollowsTheSavedSettingAndCarriesItsMarker() {
+        val on = FrameWeb.render(FrameWeb.State(emptyMap(), setOf("ambient")))
+        val off = FrameWeb.render(FrameWeb.State(emptyMap(), emptySet()))
+        assertTrue(on.contains("name=\"ambient\" checked"))
+        assertFalse(off.contains("name=\"ambient\" checked"))
+        assertTrue(off.contains("name=\"ambientSettings\" value=\"1\""))
+        assertTrue(on.contains("Use ambient light sensor for brightness"))
+    }
 }

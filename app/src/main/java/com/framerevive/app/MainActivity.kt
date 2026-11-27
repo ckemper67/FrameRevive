@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
-        window.attributes = window.attributes.apply { screenBrightness = FrameSchedule.awakeBrightness(prefs.getInt("brightness",55)) }
+        startBrightness().let { start -> window.attributes = window.attributes.apply { screenBrightness = start }; shownBrightness = start }
         enterFullscreen()
         client = PrivatePhotosClient(this)
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
@@ -142,6 +142,7 @@ class MainActivity : Activity() {
             setOnClickListener { settings() }
         }
         root.addView(night, FrameLayout.LayoutParams(-1, -1))
+        if (waitingForLight()) handler.postDelayed(lightTimeout, 5_000)
         setContentView(root)
         try {
             val seed = File(filesDir, "album-seed.json")
@@ -300,7 +301,8 @@ class MainActivity : Activity() {
         val shouldSleep = prefs.getBoolean("schedule", false) && FrameSchedule.isSleeping(now, start, end)
         // Always restore our own daytime level; the abandoned ambient-light service
         // can leave Android's global automatic brightness at its minimum overnight.
-        window.attributes = window.attributes.apply { screenBrightness = if (shouldSleep) 0f else FrameSchedule.awakeBrightness(prefs.getInt("brightness",55)) }
+        val level = if (shouldSleep) 0f else startBrightness()
+        window.attributes = window.attributes.apply { screenBrightness = level }; shownBrightness = if (shouldSleep) null else level
         // Updating brightness does not wake a display locked by DevicePolicyManager.
         // Capture the old schedule when saving, including while the activity is paused.
         if (!shouldSleep && (sleeping || wakeFromSchedule) && !getSystemService(android.os.PowerManager::class.java).isInteractive) {
@@ -522,16 +524,91 @@ class MainActivity : Activity() {
         super.onWindowFocusChanged(hasFocus)
         if(hasFocus && !closed) enterFullscreen()
     }
+    /**
+     * Screen brightness is set from the ambient light level (see AmbientBrightness). The owner's daytime percentage is the
+     * ceiling; the "ambient" setting turns the following off. The sensor is only read while the activity is resumed.
+     */
+    private val lightSmoother = AmbientBrightness.Estimator()
+    /** The device's own lux to backlight table (Android's automatic brightness calibration), else none (fixed brightness). */
+    private val brightnessCurve: AmbientBrightness.Curve? by lazy {
+        val res = android.content.res.Resources.getSystem()
+        fun array(name: String): IntArray? = res.getIdentifier(name, "array", "android").takeIf { it != 0 }
+            ?.let { try { res.getIntArray(it) } catch (_: Exception) { null } }
+        val levels = array("config_autoBrightnessLevels")
+        val values = array("config_autoBrightnessLcdBacklightValues")
+        if (levels != null && values != null) AmbientBrightness.Curve.fromDevice(levels, values) else null
+    }
+    private var shownBrightness: Float? = null
+    private var rawLux: Float? = null
+    private val lightListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            rawLux = e.values[0]
+            lightSmoother.add(e.values[0], android.os.SystemClock.elapsedRealtime())
+            applyBrightness()
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+    }
+    /** True until the sensor has given its first reading, when the ambient light setting is on and there is a table to use. */
+    private fun waitingForLight() = prefs.getBoolean("ambient", true) && brightnessCurve != null && lightSmoother.lux == null
+    /** The level to set when the activity starts or wakes: the dimmest, until the first reading, so a dark room never gets a bright start. */
+    private fun startBrightness(): Float = if (waitingForLight()) 0f else currentBrightness()
+    /** If no reading ever arrives (no working sensor), use the daytime level rather than stay dim. */
+    private val lightTimeout = Runnable { if (lightSmoother.lux == null && !sleeping) applyBrightness(force = true) }
+    private fun currentBrightness(): Float =
+        AmbientBrightness.level(prefs.getInt("brightness", 55), lightSmoother.lux, prefs.getBoolean("ambient", true), brightnessCurve)
+    private var brightnessTarget: Float? = null
+    private var brightnessTickAt = 0L
+    private fun setWindowBrightness(level: Float) {
+        window.attributes = window.attributes.apply { screenBrightness = level }
+        shownBrightness = level
+    }
+    /** Glides the screen toward the target every 40 ms until it arrives, so a change is quick but never a jump. */
+    private val brightnessTick = object : Runnable {
+        override fun run() {
+            val target = brightnessTarget ?: return
+            if (sleeping) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            val next = AmbientBrightness.glide(shownBrightness ?: target, target, now - brightnessTickAt)
+            brightnessTickAt = now
+            setWindowBrightness(next)
+            if (next != target) handler.postDelayed(this, 40)
+        }
+    }
+    private fun applyBrightness(force: Boolean = false) {
+        if (sleeping) return
+        val target = AmbientBrightness.settle(if (force) null else brightnessTarget, currentBrightness())
+        brightnessTarget = target
+        if (force || shownBrightness == null) { handler.removeCallbacks(brightnessTick); setWindowBrightness(target); return }
+        if (!handler.hasCallbacks(brightnessTick) && shownBrightness != target) {
+            brightnessTickAt = android.os.SystemClock.elapsedRealtime()
+            handler.post(brightnessTick)
+        }
+    }
+    /** Re-evaluates the light estimate every 250 ms, as Android does, because readings can stop coming when the light is steady. */
+    private val lightTick = object : Runnable {
+        override fun run() {
+            if (lightSmoother.update(android.os.SystemClock.elapsedRealtime())) applyBrightness()
+            handler.postDelayed(this, 250)
+        }
+    }
+    private fun startLightSensor() {
+        val sm = getSystemService(android.hardware.SensorManager::class.java)
+        sm.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT)?.let { sm.registerListener(lightListener, it, android.hardware.SensorManager.SENSOR_DELAY_NORMAL) }
+        handler.removeCallbacks(lightTick); handler.postDelayed(lightTick, 250)
+    }
+    private fun stopLightSensor() { handler.removeCallbacks(brightnessTick); handler.removeCallbacks(lightTick); getSystemService(android.hardware.SensorManager::class.java).unregisterListener(lightListener) }
+    private fun lightReport(): String =
+        AmbientBrightness.report(prefs.getBoolean("ambient", true), brightnessCurve, rawLux, lightSmoother.lux, shownBrightness, prefs.getInt("brightness", 55))
     override fun onResume() {
         super.onResume(); active = true; enterFullscreen()
-        buttonLights.start()
+        buttonLights.start(); startLightSensor()
         setShowWhenLocked(true); setTurnScreenOn(true)
         if (intent.action == FramePower.WAKE || intent.action == FramePower.SLEEP)
             FramePower.record(this, "Scheduled display resumed")
         FramePower.schedule(this)
         checkSchedule(force = true); if (!playbackPaused || !displayed) showNext(); planPreloads(); checkAlbumCount()
     }
-    override fun onPause() { image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
+    override fun onPause() { image.finishTransition(); preloader.clear(); setPhotoLoading(false); handler.removeCallbacks(holdStar); frontButtons.cancel(); buttonLights.stop(); stopLightSensor(); super.onPause(); active = false; generation++; handler.removeCallbacks(advance) }
     override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
         if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) { buttonLights.touch(); if (controls.visibility == View.VISIBLE) showControls() }
         return super.dispatchTouchEvent(event)
@@ -584,8 +661,8 @@ class MainActivity : Activity() {
         if (sharedLink.isNotBlank()) flags += "shared"
         if (syncing.get()) flags += "syncing"
         if (albumSwitching || syncing.get() || preloadEntries.any { it.status == PhotoPreloader.Status.QUEUED || it.status == PhotoPreloader.Status.LOADING }) flags += "busy"
-        for (name in listOf("schedule", "crop", "date", "gestures", "blurBackground", "gentleTransitions")) {
-            if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions")) flags += name
+        for (name in listOf("schedule", "crop", "date", "gestures", "blurBackground", "gentleTransitions", "ambient")) {
+            if (prefs.getBoolean(name, name == "date" || name == "gestures" || name == "blurBackground" || name == "gentleTransitions" || name == "ambient")) flags += name
         }
         if (FramePower.hasScreenControl(this)) flags += "hardwareSleep"
         val text = mapOf(
@@ -618,6 +695,7 @@ class MainActivity : Activity() {
                 "Photo mix: ${prefs.getInt("recentPercent",50)}% recent; count ${prefs.getInt("recentCount",300)}; memories +/-${prefs.getInt("memoryDays",14)} days",
                 "Preloading: $preloadSummary",
                 "Gentle transitions: ${prefs.getBoolean("gentleTransitions",true)}",
+                lightReport(),
                 "Collages: ${prefs.getBoolean("collages",true)}; every ${prefs.getInt("collageEvery",20)} photos",
                 "Source: ${if (sharedLink.isNotBlank()) "Shared album" else "Signed-in album"}",
                 "Photos: ${photos.size}; waiting: ${priorityIds.size}",
@@ -672,6 +750,7 @@ class MainActivity : Activity() {
                         .putBoolean("date",fields.containsKey("date")).putInt("seconds",seconds).putInt("brightness",brightness)
                     edit.putString("holidayTheme", holidayTheme)
                     if (fields["transitionSettings"] == "1") edit.putBoolean("gentleTransitions",fields.containsKey("gentleTransitions"))
+                    if (fields["ambientSettings"] == "1") edit.putBoolean("ambient",fields.containsKey("ambient"))
                     if (fields["backgroundSettings"] == "1") edit.putBoolean("blurBackground",fields.containsKey("blurBackground"))
                     if (fields["gestureSettings"] == "1") edit.putBoolean("gestures",fields.containsKey("gestures"))
                     if(changingMix) edit.putInt("recentCount",recentCount).putInt("memoryDays",memoryDays).putInt("recentPercent",recentPercent)
@@ -682,6 +761,7 @@ class MainActivity : Activity() {
                         if (!closed) {
                             updateHoliday()
                             image.gentleTransitions = prefs.getBoolean("gentleTransitions",true)
+                            applyBrightness(force = true)
                             image.blurredBackground = prefs.getBoolean("blurBackground",true)
                             image.scaleType = if (prefs.getBoolean("crop",false)) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                             caption.visibility = if (lastSlide?.collage != true && prefs.getBoolean("date",true)) View.VISIBLE else View.GONE
