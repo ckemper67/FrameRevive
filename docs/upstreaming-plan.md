@@ -9,6 +9,14 @@ Written 2026-11-26 from the history of `favorites-f3`. Status: a proposal. Nothi
 - The branch is 64 commits ahead of `origin/main`. Three of them are upstream's own (`fa039cc`, `3a89d8c`, `4aff43d`), so 61 are ours.
 - Almost every feature touches `MainActivity.kt` and `FrameWeb.kt`, so each extraction needs some conflict resolution.
 
+## Terms
+
+**Moment.** Frames captured close together: one party, one walk, one wave breaking. The frame groups the album into moments by capture time (a gap of more than an hour starts a new one) and lets only a few frames of a moment into a cycle, so one afternoon cannot fill the queue. Held-back frames come back in later cycles, and a frame that repeats one already kept from its moment is left out.
+
+The code and older documents call this "bursts" (`Bursts`, `burstHeld`, `BurstsTest`, the "Bursts:" Diagnostics line). Upstream used "burst" for a different idea: replaying rapid shots as a flipbook, which it tried and dropped because near-identical frames in sequence are unwatchable. Keeping the name "burst" would suggest we revived that. So "moment" is the name for our concept.
+
+When the series is built, rename at the start, in the commit that introduces it (`7183de5`, P6), and follow it through the later commits (`b419d03`, `d4dbff5` and the commits that report it): `Bursts` to `Moments`, `BurstResult` to `MomentResult`, `burstHeld` to `momentHeld` and so on, with the user-visible wording on the controls page and in Diagnostics. Doing it there avoids a rename that conflicts with every later PR. `favorites-f3` itself keeps the old names.
+
 ## Features
 
 | # | Feature | Commits | Depends on |
@@ -25,7 +33,7 @@ Other candidates:
 - Reliability: `32684f5` retry backoff, `7023b90` downloads off the UI thread, `1274d7d` preload planning. Small, look independent.
 - Album analysis tools: the Python scripts `album_metadata`, `album_census`, `album_compare` in `760b8ee`, `8c08102`, `8120b64`. Tied to the planning documents.
 - Signing and WiFi update: `5d3e821` and `f130c98`. Look separate; check whether upstream already covers them.
-- Curation seeds that belong with planning: `7183de5` bursts and near-duplicates, `6e7c771` deck, `a4fa876` plan and version mark.
+- Curation seeds that belong with planning: `7183de5` moments (bursts) and near-duplicates, `6e7c771` deck, `a4fa876` plan and version mark.
 
 ## Suggested order
 
@@ -63,8 +71,8 @@ What the layering showed:
 
 - Independent of everything: the sensor work, the deploy script, the signing tools, the retry backoff. (The WiFi update needs one name from Show Pair, `SlideMode`.)
 - `4f2b753` (Show Pair and same-day collages, about 1,000 lines of code) is the root. Almost everything else uses names it defines, so it goes first, split into parts.
-- The deck, bursts and engine commits depend on that root and on each other in a line; the engine refactor (`4207404` to `83d7fca`) sits under the later commits for recency, quality, day planning, collage themes and fill.
-- Favorites uses the deck, bursts, engine and day-planning code. The picture controls and the Google Photos link were written on top of favorites: the page's one row of buttons includes the Favorite button, and the link also handles the favorites album. So they follow favorites naturally.
+- The deck, moments and engine commits depend on that root and on each other in a line; the engine refactor (`4207404` to `83d7fca`) sits under the later commits for recency, quality, day planning, collage themes and fill.
+- Favorites uses the deck, moments, engine and day-planning code. The picture controls and the Google Photos link were written on top of favorites: the page's one row of buttons includes the Favorite button, and the link also handles the favorites album. So they follow favorites naturally.
 - "Fill the screen" (`602dc16`, `4eac8ed`) uses the engine, deck, recency and favorites code, so it goes last.
 
 ### Series
@@ -90,9 +98,9 @@ The playback story, each PR on top of the one before:
 | P3 | Soft photos kept out of collages | `4f2b753` (`PhotoQuality` part) |
 | P4 | Steadier downloads | `7023b90`, `1274d7d` |
 | P5 | Never repeat, never miss: the deck | `6e7c771` |
-| P6 | Thin bursts and near-identical frames | `7183de5` |
+| P6 | Thin moments (bursts of frames) and near-identical frames | `7183de5` |
 | P7 | The playback engine and its simulation (a refactor, no behavior change) | `4207404`, `f2fa7ca`, `19aabcb`, `04e2f6c`, `52801a1`, `b48147a`, `83d7fca` |
-| P8 | Better picks: seasonal deck, bursts in one pass, twins | `90d363d`, `b419d03`, `d4dbff5` |
+| P8 | Better picks: seasonal deck, moments in one pass, twins | `90d363d`, `b419d03`, `d4dbff5` |
 | P9 | Favor newer photos; skip soft photos on every slide | `f66c8f1` (split in two) |
 | P10 | Collage themes, four-photo layouts, dates in reading order | `18c097a` (split in three), `eadb88e`, `b654529`, `cc394a4` |
 | P11 | Plan by the day, with the Your album card | `2bbdeb5`, `d2b9528`, `2589ccd`, `e425c67` (split), plus the album tools `760b8ee`, `8c08102`, `8120b64` |
