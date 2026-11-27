@@ -80,4 +80,18 @@ class FavoriteAlbumTest {
         f.toggle("f1", 4000)
         assertTrue(f.isFavorite("f1")); assertTrue(f.vetoed.isEmpty())
     }
+
+    private fun video(id: String, taken: Long) = FramePhoto(id, "u-$id", taken, video = true)
+
+    @Test fun videosInTheMainAlbumAreNeverPlayedEvenWithoutAFavoritesAlbum() {
+        val merged = FavoriteAlbum.merge(listOf(photo("p1", 1000), video("v1", 2000), photo("p2", 3000)), emptyList(), emptySet())
+        assertEquals(listOf("p1", "p2"), merged.photos.map { it.id })
+    }
+
+    @Test fun videosInTheFavoritesAlbumAreLeftOutAndHideNoTwin() {
+        val merged = FavoriteAlbum.merge(listOf(photo("m1", 1000), photo("m2", 2000)), listOf(video("fv", 2000), photo("f1", 5000)), emptySet())
+        assertEquals(listOf("m1", "m2", "f1"), merged.photos.map { it.id })
+        assertEquals(1, merged.live)
+        assertEquals(0, merged.hidden)
+    }
 }

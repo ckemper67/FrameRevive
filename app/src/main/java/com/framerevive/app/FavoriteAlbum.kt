@@ -11,14 +11,20 @@ package com.framerevive.app
  * photos share hides nothing, so the worst case is a repeat.
  */
 object FavoriteAlbum {
+    /** [photos] without its videos; the same list when it has none, so the usual case copies nothing. */
+    private fun stills(photos: List<FramePhoto>) = if (photos.any { it.video }) photos.filter { !it.video } else photos
+
     /** [photos] is what playback works from; [live] counts favorites shown from the album, [hidden] the main twins they replace. */
     class Merged(val photos: List<FramePhoto>, val live: Int, val hidden: Int)
 
     /**
      * The main album without the twins of live favorites, plus the live favorites. A vetoed photo (un-starred here) is
-     * left out, and its twin is not hidden, so nothing else changes.
+     * left out, and its twin is not hidden, so nothing else changes. Videos are left out of both albums: the frame shows
+     * pictures, and the still frame of a video is a poor one.
      */
-    fun merge(main: List<FramePhoto>, album: List<FramePhoto>, vetoed: Set<String>): Merged {
+    fun merge(mainAlbum: List<FramePhoto>, favorites: List<FramePhoto>, vetoed: Set<String>): Merged {
+        val main = stills(mainAlbum)
+        val album = stills(favorites)
         val mainIds = main.mapTo(HashSet(main.size * 2)) { it.id }
         val live = album.filter { it.id !in vetoed && it.id !in mainIds }
         if (live.isEmpty()) return Merged(main, 0, 0)
