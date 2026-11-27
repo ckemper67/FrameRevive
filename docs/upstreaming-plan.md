@@ -1,10 +1,10 @@
 # Upstreaming plan
 
-Written 2026-11-26 from the history of `favorites-f3`. Status: a proposal. Nothing here has been extracted or tested yet.
+Written 2026-11-26 from the history of `development` (this branch, named `favorites-f3` until 2026-11-26). Status: a proposal. Nothing here has been extracted or tested yet.
 
 ## Where things stand
 
-- `favorites-f3` is a stack: `show-pair` -> `curation-phase-0..4` -> `favorites-f1..f3`. Each branch contains the one before.
+- `development` is a stack: `show-pair` -> `curation-phase-0..4` -> `favorites-f1..f3`. Each branch contains the one before.
 - It already contains upstream's latest (`upstream/main` at `4aff43d`), so every extraction below would branch from `upstream/main`. `origin/main` is the one that lags (`f73807a`).
 - The branch is 64 commits ahead of `origin/main`. Three of them are upstream's own (`fa039cc`, `3a89d8c`, `4aff43d`), so 61 are ours.
 - Almost every feature touches `MainActivity.kt` and `FrameWeb.kt`, so each extraction needs some conflict resolution.
@@ -15,7 +15,7 @@ Written 2026-11-26 from the history of `favorites-f3`. Status: a proposal. Nothi
 
 The code and older documents call this "bursts" (`Bursts`, `burstHeld`, `BurstsTest`, the "Bursts:" Diagnostics line). Upstream used "burst" for a different idea: replaying rapid shots as a flipbook, which it tried and dropped because near-identical frames in sequence are unwatchable. Keeping the name "burst" would suggest we revived that. So "moment" is the name for our concept.
 
-When the series is built, rename at the start, in the commit that introduces it (`7183de5`, P6), and follow it through the later commits (`b419d03`, `d4dbff5` and the commits that report it): `Bursts` to `Moments`, `BurstResult` to `MomentResult`, `burstHeld` to `momentHeld` and so on, with the user-visible wording on the controls page and in Diagnostics. Doing it there avoids a rename that conflicts with every later PR. `favorites-f3` itself keeps the old names.
+When the series is built, rename at the start, in the commit that introduces it (`7183de5`, P6), and follow it through the later commits (`b419d03`, `d4dbff5` and the commits that report it): `Bursts` to `Moments`, `BurstResult` to `MomentResult`, `burstHeld` to `momentHeld` and so on, with the user-visible wording on the controls page and in Diagnostics. Doing it there avoids a rename that conflicts with every later PR. `development` itself keeps the old names.
 
 ## Features
 
@@ -35,13 +35,25 @@ Other candidates:
 - Signing and WiFi update: `5d3e821` and `f130c98`. Look separate; check whether upstream already covers them.
 - Curation seeds that belong with planning: `7183de5` moments (bursts) and near-duplicates, `6e7c771` deck, `a4fa876` plan and version mark.
 
-## Suggested order
+## What to offer upstream, and in what order
 
-1. Sensor work, as three small PRs.
-2. Picture controls and deploy tooling. If the Google Photos link must open each picture of a collage or pair, send the link after the early tiling commits, or in the first picture-controls PR hold it back until then.
-3. Tiling: the early pairs and collages first, then the fill logic.
-4. Planning.
-5. Favorites, last, because it builds on the planning code.
+Upstream is a one-person project: `letsteststuff` made 27 of the 38 commits, and the rest are the original author and dependabot. It releases whole versions (0.5.x-alpha) with a changelog entry and a release note, documents a three-tab controls page, and lists planned work in `ROADMAP.md` (network folders; the burst flipbook is deferred).
+
+What we hold is 114 files and about 10,000 added lines (3,400 of app code, 3,300 of tests, 2,100 of documents) in 61 commits. Reviewing that is a lot to ask of one person, and not all of it is wanted. So the plan is to offer it in pieces and let them choose:
+
+1. **Ask first.** Open one issue or discussion that lists about five candidate changes with a line each, and ask which ones they want. Send pull requests only for those.
+2. **Small pieces, one or two at a time.** Each with a before and after from the real frame.
+3. **Respect their page and releases.** Keep the three tabs. If the picture controls go upstream, they arrive as a "Now showing" card at the top of Everyday. The five-tab redesign (`web-controls-plan.md`) stays in this fork. Add changelog lines, and leave version bumps and release notes to them.
+4. **Send user-facing documents only** (for example `show-pair.md`, `favorites-plan.md` trimmed to a guide). The plans, the handoff and the album tools stay in the fork.
+5. **Offer the large middle last.** The engine refactor and the planning stack (P5 to P11, about 6,000 lines) have no user-visible effect of their own, and they overlap the deferred burst work. Offer them only if asked.
+
+Candidates for the first list, smallest first:
+
+1. The upside-down portrait fix (Q1): one line in the manifest.
+2. Ambient brightness (Q3), using the lux table found in Lenovo's firmware.
+3. The installed-build line in diagnostics (Q2), which exposes a stale APK after a web deploy.
+4. Show Pair (P1): a portrait frame no longer wastes space on a landscape photo.
+5. Reliability (Q6, P4): retry backoff and steadier downloads.
 
 ## Known snags
 
@@ -89,7 +101,7 @@ Quick wins (independent, send any time, in parallel):
 | Q6 | Retry backoff | `32684f5` |
 | Q7 | WiFi update and silent install | `f130c98` (adapt the one `SlideMode` use) |
 
-The playback story, each PR on top of the one before:
+The playback story, each PR on top of the one before. Under "What to offer upstream, and in what order" these go out one or two at a time and only if wanted; P1 to P4 are the first candidates, P5 to P11 are held back, and P13 arrives as a card on Everyday, not a new tab:
 
 | PR | Story | Commits |
 |---|---|---|
@@ -105,7 +117,7 @@ The playback story, each PR on top of the one before:
 | P10 | Collage themes, four-photo layouts, dates in reading order | `18c097a` (split in three), `eadb88e`, `b654529`, `cc394a4` |
 | P11 | Plan by the day, with the Your album card | `2bbdeb5`, `d2b9528`, `2589ccd`, `e425c67` (split), plus the album tools `760b8ee`, `8c08102`, `8120b64` |
 | P12 | Favorites | `d010603`, `e55ba79`, `c7b61a6`, `f31d0d2`, `095e2a0`, `11ddf54`, `6980bd5`, `1be2025` |
-| P13 | Picture controls: current picture, one row, Google Photos link | `ad47b27`, `fe23bcd`, `f96831e`, `7a85f17`, `a8a5337` |
+| P13 | Picture controls as a "Now showing" card on Everyday: current picture, one row, Google Photos link | `ad47b27`, `fe23bcd`, `f96831e`, `7a85f17`, `a8a5337` |
 | P14 | Fill the screen, no unused space | `602dc16`, `4eac8ed` |
 
 Documents (`curation-plan.md`, `playback-plan.md`, `day-coverage-plan.md`, `streams-plan.md`, the handoff, the changelog entries) go with the PR whose behavior they describe. The changelog is one growing section, so each PR should add only its own lines.
@@ -123,7 +135,7 @@ Documents (`curation-plan.md`, `playback-plan.md`, `day-coverage-plan.md`, `stre
 - Take unsplit commits with cherry-pick and resolve conflicts once; for the splits, apply the commit and stage by file or by hunk.
 - At every branch run `:app:assembleDebug :app:testDebugUnitTest lintDebug`. A series that builds at each step is the point.
 - Rebase the later PRs as earlier ones merge. Open the quick wins first, because they need no one else.
-- Do this in a clone, never on `favorites-f3`, which stays as the working history.
+- Do this in a clone, never on `development`, which stays as the working history.
 
 ## How to check before opening a PR
 
