@@ -21,7 +21,7 @@ When the series is built, rename at the start, in the commit that introduces it 
 
 | # | Feature | Commits | Depends on |
 |---|---|---|---|
-| 1 | Sensor work | `b09c8f4` upside-down portrait, `cc423be` installed build SHA in diagnostics, `8001906` ambient brightness | nothing |
+| 1 | Sensor work | `36e4ac6` upside-down portrait (branch `upside-down-portrait`), `cc423be` installed build SHA in diagnostics, `2488b91` ambient brightness (branch `ambient-brightness`) | nothing |
 | 2 | Picture controls | `ad47b27` current picture on the Everyday page, `fe23bcd` controls in one row, `f96831e` fading messages, `7a85f17` open the picture in Google Photos when clicked, `a8a5337` look up an album's Google Photos address at startup | in practice more than it looks: the current-picture code uses the dates rows, favorites and Show Pair, which upstream lacks (see the first attempt below); the Google Photos link also touches `PrivatePhotosClient` and, to open each picture of a collage or pair, needs the tile layout from 3 |
 | 3 | Tiling (pairs, collages, fill) | `4f2b753`, `3f2d4dd`, `694b7e6`, `18c097a`, `602dc16`, `4eac8ed`, plus dates in `eadb88e` and `b654529` | later parts depend on 4 |
 | 4 | Planning | `4207404`, `f2fa7ca`, `19aabcb`, `90d363d`, `04e2f6c`, `52801a1`, `b419d03`, `b48147a`, `83d7fca`, `d2b9528`, `f66c8f1`, `2bbdeb5`, `2589ccd`, `e425c67`, `d4dbff5`, `77671c7`, `34b1186` and the plan documents | the early tiling commits sit below it |
@@ -50,7 +50,7 @@ What we hold is 114 files and about 10,000 added lines (3,400 of app code, 3,300
 Candidates for the first list, smallest first:
 
 1. The upside-down portrait fix (Q1): one line in the manifest.
-2. Ambient brightness (Q3), using the lux table found in Lenovo's firmware.
+2. Ambient brightness (Q3), using the lux to backlight table the device ships for Android's automatic brightness. On the tested Lenovo frame this is Lenovo's own table. The app reads it from the device and copies none of it, so it applies to any frame that has one, and with no usable table the brightness stays at the fixed daytime level.
 3. The installed-build line in diagnostics (Q2), which exposes a stale APK after a web deploy.
 4. Show Pair (P1): a portrait frame no longer wastes space on a landscape photo.
 5. Reliability (Q6, P4): retry backoff and steadier downloads.
@@ -59,7 +59,7 @@ Candidates for the first list, smallest first:
 
 - Several commits mix features. `4eac8ed` (fill the screen) touches `PlaybackEngine` and `SlideChooser`, so it either waits for planning or carries part of it. `1be2025` serves both favorites and the album tools. The Google Photos link (`7a85f17`) sits in picture controls but clicks on a collage or pair tile need the tiling code; it was also written on top of favorites, so check it applies without them.
 - `FrameWeb.kt` and `MainActivity.kt` change in nearly every commit, so cherry-picks will conflict. Expect to hand-merge.
-- The ambient brightness and build SHA commits add hooks in `MainActivity.kt` that should apply on their own, but this has not been tried.
+- Upside-down portrait and ambient brightness are each one commit on `upstream/main` (branches `upside-down-portrait` and `ambient-brightness`, both on the fork), built and tested there. The build SHA commit has not been tried.
 
 ## First attempt: picture controls (2026-11-26)
 
@@ -93,9 +93,9 @@ Quick wins (independent, send any time, in parallel):
 
 | PR | What | Commits |
 |---|---|---|
-| Q1 | Allow upside-down portrait | `b09c8f4` |
+| Q1 | Allow upside-down portrait | `36e4ac6` (branch `upside-down-portrait`) |
 | Q2 | Installed build SHA in diagnostics | `cc423be` |
-| Q3 | Ambient light sensor for brightness | `8001906` |
+| Q3 | Ambient light sensor for brightness | `2488b91` (branch `ambient-brightness`; the message is the PR text) |
 | Q4 | Deploy script | `80c7be6`, `8ac0c9f`, `b93e151` |
 | Q5 | Signing and re-signing tools | `5d3e821` |
 | Q6 | Retry backoff | `32684f5` |
