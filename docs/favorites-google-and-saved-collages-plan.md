@@ -43,13 +43,14 @@ reports the deep link works for starring); how often matching by byte copy or ca
   photos of the collage (their ids and the position of each), and the rendered picture (the 1080 by 1920 JPEG it already has in
   memory, about 1 MB). The recipe is what makes it replayable; the picture lets the owner download it and lets the frame show it
   when a photo is no longer available.
-- **How it comes back.** When a collage's turn comes up, a saved collage replaces the planned one with a probability set by the
-  favorites setting (the same share as for single photos: about 1 in 20, 10 or 5), the one shown longest ago first. Its photos
+- **How it comes back.** When a collage's turn comes up, a saved collage replaces the planned one now and then, the one shown
+  longest ago first. It is rarer than a favorite photo: at most one collage slot in ten, scaled by the favorites setting (some,
+  often or lots give one in forty, twenty and ten; off gives none), since a saved collage is a special occasion. Its photos
   are downloaded ahead like any collage's, and the layout is fitted again on them. If a photo is missing from the album, the
   saved picture is shown instead, as one slide, until the owner removes it.
 - **Where it lives.** On the frame, in its private storage, with an index file (id, date saved, photos, last shown). Saved
   collages are listed on the controls page with a thumbnail, a download link and a delete button. At about 1 MB each, a
-  hundred saved collages use about 100 MB.
+  hundred saved collages use about 100 MB; there is no limit for now, as saving a collage is expected to be rare.
 - **Google.** A saved collage is a derivative image, not a photo of the album, so it is not uploaded. The owner can download
   the picture from the controls page and put it in Google Photos by hand if they want it there.
 - **Its photos.** Saving a collage does not star its photos one by one: "I liked that collage" is not "I liked those five photos".
@@ -65,10 +66,9 @@ reports the deep link works for starring); how often matching by byte copy or ca
 Signing in to Google on the frame; uploading copies or collages; adding to the shared album automatically; any unofficial
 Google request; replaying a saved collage with substituted photos (it falls back to the saved picture instead).
 
-## Open decisions
+## Decisions
 
-1. How often should saved collages replay? The proposal is the favorites share, but a saved collage is rarer and more special
-   than a favorite photo, so a fixed floor (every fifth collage slot while any are saved) may suit better.
-2. Should the saved picture also be written to the frame's shared storage so it is easy to copy off, or is the controls-page
-   download enough?
-3. How many saved collages should the frame keep before the oldest has to be deleted by hand, or does the owner prefer no limit?
+1. ~~How often should saved collages replay?~~ Answered: rarer than a simple favorite. The proposal above (at most one collage
+   slot in ten, scaled by the favorites setting) follows that and can be tuned by looking at it on the frame.
+2. ~~Shared storage as well?~~ Answered: the controls-page download is enough.
+3. ~~A limit on how many are kept?~~ Answered: no limit for now; saving a collage is expected to be rare.
