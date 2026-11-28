@@ -14,7 +14,7 @@ val page=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "3","starsNotI
 assertTrue(page.contains("Stars not yet in Google"))
 assertTrue(page.contains("2 of the 3 stars"))
 assertTrue(page.contains("href=\"https://photos.google.com/share/X/photo/ID1?key=k\""))
-assertTrue("a star with no link is still listed",page.contains("<li>Undated</li>"))
+assertTrue("a star with no link is still listed",page.contains(" &middot; Undated</p>"))
 }
 @Test fun whenEveryStarIsInGoogleThePageSaysSoAndWithNoStarsThereIsNoCard() {
 val all=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "4","starsNotInGoogle" to ""),emptySet()))

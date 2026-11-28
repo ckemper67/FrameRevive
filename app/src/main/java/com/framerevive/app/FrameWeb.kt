@@ -13,12 +13,12 @@ object FrameWeb {
         val lines = state.text["starsNotInGoogle"].orEmpty().lines().filter { it.isNotBlank() }
         val head = "<article class=\"card\"><h2>Stars not yet in Google</h2>"
         if (lines.isEmpty()) return head + "<p class=\"muted\">All $stars stars set on the frame are in your Frame favorites album.</p></article>"
-        val items = lines.take(40).joinToString("") { line ->
+        val items = lines.take(40).map { line ->
             val (link, date) = line.split('\t', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
-            "<li>" + (if (link.isBlank()) FrameRemote.escape(date) else "<a href=\"${FrameRemote.escape(link)}\" target=\"_blank\" rel=\"noopener\">${FrameRemote.escape(date)}</a>") + "</li>"
-        }
+            if (link.isBlank()) FrameRemote.escape(date) else "<a href=\"${FrameRemote.escape(link)}\" target=\"_blank\" rel=\"noopener\">${FrameRemote.escape(date)}</a>"
+        }.joinToString(" &middot; ")
         val more = if (lines.size > 40) "<p class=\"fine-print\">and ${lines.size - 40} more</p>" else ""
-        return head + "<p class=\"muted\">${lines.size} of the $stars stars set on the frame are not in your Frame favorites album yet. Open one in Google Photos, star it there and add it to the album; it leaves this list when the frame next reads the album.</p><ol>$items</ol>$more</article>"
+        return head + "<p class=\"muted\">${lines.size} of the $stars stars set on the frame are not in your Frame favorites album yet. Open one in Google Photos, star it there and add it to the album; it leaves this list when the frame next reads the album.</p><details><summary>Show the ${minOf(lines.size, 40)} photos</summary><p>$items</p>$more</details></article>"
     }
 
     fun render(state: State): String {
