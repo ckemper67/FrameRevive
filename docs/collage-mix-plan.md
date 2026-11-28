@@ -1,7 +1,8 @@
 # Plan: collages follow the mix settings
 
-Status (2026-11-27): stages 1 and 2 are built (the theme turn scheduler, `ThemeTurns`; the recent-or-plain draw of the
-anchor day, `AnchorDraw`); stages 3 and 4 are proposed. The design comes from a review of the problem, checked against the
+Status (2026-11-27): stages 1, 2 and 4 are built (the theme turn scheduler, `ThemeTurns`; the recent-or-plain draw of the
+anchor day, `AnchorDraw`; the note on the controls page). Stage 3, favorites weighting the anchor day, was dropped by the
+owner's decision: favorites keep showing in the single photos and the pairs, and are not used for collages. The design comes from a review of the problem, checked against the
 code; the points where the code differs from the first proposal are marked.
 
 As built, stage 2 works like this. Each collage of "A day" or "One outing" flips its own coin (recent with probability
@@ -59,7 +60,7 @@ memory window of today's date. The previous collage's day is avoided. None of th
    other keys of a lexicographic sort differs between every pair of days, so it would silently make the bigger-day and
    longest-unseen keys irrelevant and always pick the single newest day. The days are first ranked as today, and the draw is
    among the best few (those with the most unseen photos and downloaded), weighted by recency.
-3. **Favorites weight the anchor, not the pool.** A day containing favorites gets a weight multiplier scaled by the share
+3. **(Dropped, see the decision below.) Favorites weight the anchor, not the pool.** A day containing favorites gets a weight multiplier scaled by the share
    setting and by the day's favorite density (starting values 1 plus 0.5, 1 or 2 times favorites over photos for some, often
    and lots; off is no boost). It enters the weight of the draw above, not the sort. Favorites are not forced into a collage:
    the planner picks by shape and crop, and forcing one could block a five-photo layout.
@@ -93,8 +94,8 @@ of collages on a day with a favorite, and how many distinct days are used.
 
 1. The theme turn scheduler (small, testable, changes only how often On this day comes up; built).
 2. The recency-weighted draw for A day and One outing, with the simulation (built).
-3. The favorites weight on the anchor.
-4. The web sentence and this document's update in `collage-themes.md`.
+3. ~~The favorites weight on the anchor.~~ Dropped: favorites are not used for collages.
+4. The web sentence and this document's update in `collage-themes.md` (built).
 
 ## Not done
 
@@ -109,5 +110,10 @@ machinery (only the weight function is shared); making On this day obey the rece
    collage flips its own coin, then is built wholly from that kind (recent or plain); a single collage is never a mixture.
 3. ~~For the plain draw, which days are eligible?~~ Answered: any day of the album, ranked as today by unseen and longest
    unseen; the seasonal case is the On this day theme.
-4. ~~How strong should the favorites weight be?~~ Answered: decided by the simulation, which shows how often favorite-rich
-   days are chosen at each level; the starting values are guesses.
+4. ~~How strong should the favorites weight be?~~ Answered by a simulation on the owner's album (204 favorites, 179 of them in
+   the main album, on 135 days; 119 of the 864 days with five or more photos contain one, typically 6 percent of the day).
+   The proposed boost by favorite density does almost nothing (collages anchored on a day with a favorite: 19 percent
+   with it and without). A count-based boost, `1 + k * favorites on the day`, works (27, 34 and 45 percent of collages
+   contain a favorite at k of 0.5, 1 and 2 when favorites also rank first in the pool, against 6 percent now, and only 9, 12
+   and 15 percent when the pool is left alone). The owner decided not to use favorites for collages: they show in the
+   single photos and the pairs.

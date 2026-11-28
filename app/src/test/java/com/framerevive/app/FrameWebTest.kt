@@ -4,7 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameWebTest {
-    @Test fun everyCollageThemeHasAToggleOnThePage() {
+    @Test fun thePageSaysTheMixSettingsAlsoSteerCollagesButFavoritesDoNot() {
+val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
+assertTrue(page.contains("also decide which days collages come from"))
+assertTrue(page.contains("Favorites are not used for collages"))
+}
+@Test fun everyCollageThemeHasAToggleOnThePage() {
 val page=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("collageTheme_day","collageTheme_outing","collageTheme_anniversary")))
 for(theme in CollageThemes.all) {
 assertTrue("toggle for ${theme.id}",page.contains("name=\"collageTheme_${theme.id}\""))

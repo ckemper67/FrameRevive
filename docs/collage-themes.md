@@ -91,6 +91,11 @@ that window was Thanksgiving itself in 5 of the 16 years that had photos there a
 alone in 9 of 16 years and from the day and the week around it in 15 of 16. Holiday names and one photo per year stay
 as later steps.
 
+Mix settings (2026-11-27, see `collage-mix-plan.md`): the recent-versus-memories slider and the favor-newer setting now steer
+the collages too. "On this day" takes its turns in proportion to the memories share and never comes up at all recent, and
+"A day" and "One outing" draw each collage recent or plain by the slider, a recent draw weighted by the singles' recency
+weight. Favorites are not used for collages; they show in the single photos and the pairs.
+
 ## Floating holidays for "this day through the years"
 
 Assessment (2026-11-22). The matching key of the theme is a calendar date (month and day) or a holiday. Every day
