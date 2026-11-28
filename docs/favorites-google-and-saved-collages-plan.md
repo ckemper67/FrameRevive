@@ -1,7 +1,7 @@
 # Plan: favorites and Google, and saving a collage as a favorite
 
-Status (2026-11-27): part 1, the list of stars not yet in Google, is built (`FavoritesInGoogle`, a card on the controls page);
-parts 2 and 3 are proposed. It follows `favorites-plan.md` (the favorites store, the star button, the
+Status (2026-11-27): parts 1 and 2 are built (the list of stars not yet in Google, `FavoritesInGoogle`; saving a collage, `SavedCollages`, with a
+"Saved collages" card on the Setup tab); part 3, replaying them, is proposed. It follows `favorites-plan.md` (the favorites store, the star button, the
 "Frame favorites" album) and `collage-mix-plan.md`. The options were reviewed; where the review was unsure of Google's rules,
 the point is marked to verify.
 
@@ -59,7 +59,7 @@ reports the deep link works for starring); how often matching by byte copy or ca
 ## Staged plan
 
 1. The list of stars not yet in Google, with the links (built).
-2. Saving a collage (recipe and picture) when the owner stars during one, listed on the controls page with download and delete.
+2. Saving a collage (recipe and picture) when the owner stars during one, listed on the controls page with download and delete (built; a second star on the same collage removes it).
 3. Replaying saved collages in the collage turns by the favorites share, with the fallback to the saved picture.
 
 ## Not done

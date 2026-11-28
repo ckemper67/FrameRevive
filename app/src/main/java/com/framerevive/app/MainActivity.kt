@@ -109,6 +109,9 @@ class MainActivity : Activity() {
     private val historyFile by lazy { File(filesDir,"photo-history.json") }
     private val favorites = Favorites()
     private val favoritesFile by lazy { File(filesDir,"favorites.tsv") }
+    private val savedCollages by lazy { SavedCollages(File(filesDir,"collages")) }
+    /** The picture of the collage on screen, kept so that a star can save exactly what the owner sees. */
+    @Volatile private var collageJpeg: ByteArray? = null
     private val favoriteLog = FavoriteLog()
     private val favoriteLogFile by lazy { File(filesDir,"favorites-shown.tsv") }
     private val pendingPlays = java.util.concurrent.atomic.AtomicInteger()
@@ -268,6 +271,7 @@ class MainActivity : Activity() {
         Thread {
             playHistory.putAll(PhotoDeck.load(historyFile))
             favorites.load(favoritesFile)
+            savedCollages.load()
             favoriteLog.load(favoriteLogFile)
             duplicates.load(md5File)
             favoritesReady = true
@@ -389,7 +393,7 @@ class MainActivity : Activity() {
                 textSize = 13f; setPadding(20,0,0,0); setTextColor(Color.LTGRAY)
             }, LinearLayout.LayoutParams(0,-2,1f))
             controls.addView(addressPanel)
-            remote = FrameRemote(token, { remotePage() }, { fields -> applyRemote(fields) }, tls.listen(8765), upload = { input, length -> updater.receive(input, length) }, image = { currentImage() })
+            remote = FrameRemote(token, { remotePage() }, { fields -> applyRemote(fields) }, tls.listen(8765), upload = { input, length -> updater.receive(input, length) }, image = { currentImage() }, saved = { id -> savedCollages.picture(id) })
         } catch (_: Exception) { status.append("\nPhone management could not start.") }
         FramePower.schedule(this)
         // The catalog on disk is already loaded: wait out what is left of the hour since the last good read instead of reading the
@@ -580,8 +584,19 @@ class MainActivity : Activity() {
     private fun favoriteSlide(pauseInstead: Boolean = false): String {
         val slide = lastSlide ?: return "No photo is on screen yet."
         if (slide.photos.size == 1) return toggleFavorite(slide.photos[0])
-        if (pauseInstead) { handler.post { setPlaybackPaused(!playbackPaused) }; return "Starring does not work for multiple pictures." }
-        return "Starring does not work for multiple pictures."
+        if (slide.collage) return toggleSavedCollage(slide)
+        if (pauseInstead) { handler.post { setPlaybackPaused(!playbackPaused) }; return "Starring does not work for a pair." }
+        return "Starring does not work for a pair."
+    }
+
+    /** Saves the collage on screen as a favorite, with its picture, or removes it when it is already saved. */
+    private fun toggleSavedCollage(slide: FrameSlide): String {
+        val ids = slide.photos.map { it.id }
+        savedCollages.find(ids)?.let { savedCollages.delete(it.id); handler.post { showFavoriteChange(false) }; return "Collage removed from favorites." }
+        val jpeg = collageJpeg ?: return "This collage cannot be saved yet."
+        savedCollages.save(ids, jpeg, System.currentTimeMillis())
+        handler.post { showFavoriteChange(true) }
+        return "Collage saved as a favorite."
     }
 
     private fun toggleFavorite(photo: FramePhoto): String {
@@ -799,6 +814,15 @@ class MainActivity : Activity() {
         val slide = lastSlide ?: return null
         if (slide.photos.size != 1) return multiPreview
         return synchronized(cacheLock) { runCatching { cached(slide.photos[0]).readBytes() }.getOrNull() }
+    }
+    private fun fullJpeg(b: android.graphics.Bitmap): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+        return out.toByteArray()
+    }
+    /** One line per saved collage for the controls page: id, date saved, number of photos, newest first. */
+    private fun savedCollagesLines(): String = savedCollages.list().joinToString("\n") { c ->
+        "${c.id}\t${java.time.Instant.ofEpochMilli(c.savedMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate().format(FrameCaption.DATE)}\t${c.photoIds.size}"
     }
     private fun previewJpeg(b: android.graphics.Bitmap): ByteArray {
         val scale = minOf(1f, 960f / maxOf(b.width, b.height))
@@ -1029,6 +1053,7 @@ class MainActivity : Activity() {
                 }
                 trimCache()
                 val preview = if (slide.collage || slide.pair) runCatching { previewJpeg(b) }.getOrNull() else null
+                val full = if (slide.collage) runCatching { fullJpeg(b) }.getOrNull() else null
                 val tiles = if (slide.collage || slide.pair) runCatching {
                     val d = resources.displayMetrics
                     CollageLayout.place(d.widthPixels, d.heightPixels, slide.photos.map(::photoSize), fill = true).panels to
@@ -1048,7 +1073,7 @@ class MainActivity : Activity() {
                     val slideNow = if (android.os.SystemClock.uptimeMillis() - waveSlideAt < 8_000) waveSlide else 0
                     waveSlide = 0
                     image.setPhoto(b, background, slideNow)
-                    multiPreview = preview; shownAt = System.currentTimeMillis()
+                    multiPreview = preview; collageJpeg = full; shownAt = System.currentTimeMillis()
                     tilePanels = tiles?.first ?: emptyList(); tileScale = tiles?.second ?: 1f; tileRects = rects
                     markDisplayed(slide,fromHistory)
                     duplicateRun = 0; misfitRun = 0
@@ -1361,7 +1386,7 @@ class MainActivity : Activity() {
         if(prefs.getBoolean("pairs",true)) flags += "pairs"
         if(prefs.getBoolean("preload",true)) flags += "preload"
         if (sharedLink.isNotBlank()) flags += "shared"
-        if (lastSlide?.photos?.any { favorites.isFavorite(it.id) } == true) flags += "slideFavorite"
+        if (lastSlide?.let { if (it.collage) savedCollages.find(it.photos.map { p -> p.id }) != null else it.photos.any { p -> favorites.isFavorite(p.id) } } == true) flags += "slideFavorite"
         if (syncing.get()) flags += "syncing"
         if (albumSwitching || syncing.get() || preloadEntries.any { it.status == PhotoPreloader.Status.QUEUED || it.status == PhotoPreloader.Status.LOADING }) flags += "busy"
         for (theme in CollageThemes.all) if (theme.id in enabledThemes()) flags += "collageTheme_${theme.id}"
@@ -1378,7 +1403,7 @@ class MainActivity : Activity() {
             "dateStyle" to prefs.getString("dateStyle",DATE_ON_PICTURE).orEmpty(),
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
             "shownStamp" to shownAt.toString(), "nowShowing" to nowShowingText(),
-            "favoriteLog" to favoriteLogSentence(), "photoTiles" to photoTiles(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "favoriteLog" to favoriteLogSentence(), "photoTiles" to photoTiles(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(), "savedCollages" to savedCollagesLines(),
             "frameStarCount" to starsNotInGoogle().first.toString(), "starsNotInGoogle" to starsNotInGoogle().second,
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
@@ -1565,6 +1590,7 @@ class MainActivity : Activity() {
                     "Choosing a collage of up to $count photos. Its photos may need up to half a minute to download."
                 }
                 "favorite" -> favoriteSlide()
+                "deleteCollage" -> if (savedCollages.delete(fields["id"].orEmpty())) "Saved collage deleted." else "That saved collage is already gone."
                 "importFavorites" -> { val added = favorites.import(fields["favoritesImport"].orEmpty()); saveFavorites(); handler.post { updateFavoriteBadge() }; "Imported $added new favorites." }
                 "favoritesAlbum" -> {
                     val link = fields["favoritesLink"]?.trim().orEmpty()

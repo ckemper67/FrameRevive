@@ -17,6 +17,7 @@ class FrameRemote(private val token: String, private val page: () -> String,
                   private val apply: (Map<String, String>) -> String, private val server: SSLServerSocket,
                   private val upload: ((java.io.InputStream, Int) -> String)? = null,
                   private val image: () -> ByteArray? = { null },
+                  private val saved: (String) -> ByteArray? = { null },
                   private val headerTimeoutMs: Long = 5000, private val bodyTimeoutMs: Long = 120_000) : AutoCloseable {
     private val worker = Executors.newSingleThreadExecutor()
     private val requests = ThreadPoolExecutor(4, 4, 0, TimeUnit.MILLISECONDS, SynchronousQueue())
@@ -92,6 +93,12 @@ class FrameRemote(private val token: String, private val page: () -> String,
             if (bytes == null) reply(socket, 404, "No photo is on screen yet.") else replyJpeg(socket, bytes)
             return
         }
+        val savedId = target.substringAfter('?', "").split('&').firstOrNull { it.startsWith("saved=") }?.substringAfter('=')
+        if (request[0] == "GET" && savedId != null) {
+            val bytes = saved(savedId)
+            if (bytes == null) reply(socket, 404, "That saved collage is gone.") else replyJpeg(socket, bytes, download = target.substringAfter('?', "").split('&').contains("download=1"), name = "collage-$savedId.jpg")
+            return
+        }
         if (request[0] == "GET") { reply(socket, 200, synchronized(callbacks) { page() }); return }
         if (request[0] != "POST") { reply(socket, 405, "Method not supported."); return }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
@@ -120,8 +127,8 @@ class FrameRemote(private val token: String, private val page: () -> String,
         reply(socket, 200, "<!doctype html><meta name='viewport' content='width=device-width'><p>${escape(result)}</p><p><a href='?key=$token'>Back to frame settings</a></p>")
         } finally { bodyTimer.cancel(false) }
     }
-    private fun replyJpeg(socket: Socket, bytes: ByteArray) {
-        val header = "HTTP/1.1 200 Response\r\nContent-Type: image/jpeg\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+    private fun replyJpeg(socket: Socket, bytes: ByteArray, download: Boolean = false, name: String = "") {
+        val header = "HTTP/1.1 200 Response\r\nContent-Type: image/jpeg\r\n${if (download && name.all { it.isLetterOrDigit() || it in "-._" }) "Content-Disposition: attachment; filename=\"$name\"\r\n" else ""}Content-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
         socket.getOutputStream().apply { write(header.toByteArray()); write(bytes); flush() }
         socket.shutdownOutput()
     }

@@ -9,6 +9,15 @@ val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
 assertTrue(page.contains("also decide which days collages come from"))
 assertTrue(page.contains("Favorites are not used for collages"))
 }
+@Test fun savedCollagesAreListedWithDownloadAndDeleteAndNothingElseCanBeInjected() {
+val page=FrameWeb.render(FrameWeb.State(mapOf("savedCollages" to "abc1\tMay 1, 2024\t5\n\"><script>x</script>\tbad\t2"),emptySet()))
+assertTrue(page.contains("Saved collages"))
+assertTrue(page.contains("data-saved=\"abc1\""))
+assertTrue(page.contains("name=\"action\" value=\"deleteCollage\""))
+assertTrue(page.contains("May 1, 2024, 5 photos"))
+assertFalse("an id that is not letters and digits is dropped",page.contains("<script>x</script>"))
+assertFalse(FrameWeb.render(FrameWeb.State(emptyMap(),emptySet())).contains("Saved collages"))
+}
 @Test fun theStarsNotYetInGoogleAreListedWithLinks() {
 val page=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "3","starsNotInGoogle" to "https://photos.google.com/share/X/photo/ID1?key=k\tMay 1, 2024\n\tUndated"),emptySet()))
 assertTrue(page.contains("Stars not yet in Google"))
