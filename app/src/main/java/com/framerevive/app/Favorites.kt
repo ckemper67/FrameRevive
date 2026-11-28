@@ -38,6 +38,10 @@ class Favorites {
 
     fun isFavorite(id: String): Boolean = id in ids
 
+    /** The photos starred on the frame itself and still starred, newest star first, with the time of each star. */
+    @Synchronized fun frameStars(): List<Pair<String, Long>> =
+        records.filterValues { !it.vetoed && it.origin == Favorite.FRAME }.map { (id, f) -> id to f.starredMs }.sortedByDescending { it.second }
+
     /** Stars the photo, or removes its star. Returns whether it is a favorite afterwards. */
     @Synchronized fun toggle(id: String, now: Long): Boolean {
         val current = records[id]

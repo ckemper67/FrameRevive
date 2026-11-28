@@ -9,6 +9,24 @@ val page=FrameWeb.render(FrameWeb.State(emptyMap(),emptySet()))
 assertTrue(page.contains("also decide which days collages come from"))
 assertTrue(page.contains("Favorites are not used for collages"))
 }
+@Test fun theStarsNotYetInGoogleAreListedWithLinks() {
+val page=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "3","starsNotInGoogle" to "https://photos.google.com/share/X/photo/ID1?key=k\tMay 1, 2024\n\tUndated"),emptySet()))
+assertTrue(page.contains("Stars not yet in Google"))
+assertTrue(page.contains("2 of the 3 stars"))
+assertTrue(page.contains("href=\"https://photos.google.com/share/X/photo/ID1?key=k\""))
+assertTrue("a star with no link is still listed",page.contains("<li>Undated</li>"))
+}
+@Test fun whenEveryStarIsInGoogleThePageSaysSoAndWithNoStarsThereIsNoCard() {
+val all=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "4","starsNotInGoogle" to ""),emptySet()))
+assertTrue(all.contains("All 4 stars set on the frame are in your Frame favorites album"))
+val none=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "0"),emptySet()))
+assertFalse(none.contains("Stars not yet in Google"))
+}
+@Test fun ownerTextInTheStarListCannotBecomeMarkup() {
+val page=FrameWeb.render(FrameWeb.State(mapOf("frameStarCount" to "1","starsNotInGoogle" to "\"><script>x</script>\t<b>d</b>"),emptySet()))
+assertFalse(page.contains("<script>x</script>"))
+assertFalse(page.contains("<b>d</b>"))
+}
 @Test fun everyCollageThemeHasAToggleOnThePage() {
 val page=FrameWeb.render(FrameWeb.State(emptyMap(),setOf("collageTheme_day","collageTheme_outing","collageTheme_anniversary")))
 for(theme in CollageThemes.all) {

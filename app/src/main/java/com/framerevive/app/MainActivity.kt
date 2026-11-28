@@ -641,6 +641,19 @@ class MainActivity : Activity() {
         }.apply { isDaemon = true; name = "share-links"; start() }
     }
 
+    /** The frame's own stars the favorites album does not contain yet, as `address<TAB>date` lines for the controls page. */
+    private fun starsNotInGoogle(): Pair<Int, String> {
+        val stars = favorites.frameStars()
+        if (stars.isEmpty()) return 0 to ""
+        val wanted = stars.mapTo(HashSet()) { it.first }
+        val byId = photos.asSequence().filter { it.id in wanted }.associateBy { it.id }
+        val pending = FavoritesInGoogle.pending(stars, byId, favoriteAlbum)
+        val lines = pending.joinToString("\n") { p ->
+            (PhotoLinks.url(mainShare, p.photo.id) ?: "") + "\t" + (if (p.photo.dated) p.photo.date().format(FrameCaption.DATE) else "Undated")
+        }
+        return stars.size to lines
+    }
+
     /** Where on the current picture each photo opens in Google Photos, for the controls page. */
     private fun photoTiles(): String {
         val slide = lastSlide ?: return ""
@@ -1366,6 +1379,7 @@ class MainActivity : Activity() {
             "starButton" to prefs.getString("starButton","pause").orEmpty(),
             "shownStamp" to shownAt.toString(), "nowShowing" to nowShowingText(),
             "favoriteLog" to favoriteLogSentence(), "photoTiles" to photoTiles(), "favoriteShare" to favoriteShare().id, "favoriteAlbumSummary" to favoriteAlbumSummary(), "favoriteSummary" to favoriteSummary(), "favoritesBackup" to favorites.export(),
+            "frameStarCount" to starsNotInGoogle().first.toString(), "starsNotInGoogle" to starsNotInGoogle().second,
             "deckSummary" to PhotoDeck.stats(photos,playHistory).let { s ->
                 "Deck: ${s.total} photos · ${s.shown} shown (${s.percentShown}%) · ${s.unseen} never shown · built in ${deckMs} ms" },
             "previewNote" to prefs.getString("previewNote","").orEmpty(),
